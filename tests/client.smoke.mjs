@@ -90,10 +90,18 @@ try {
   await settle();
   let tree = page.render();
   assert.ok(text(tree).includes("已保存 Cookie"));
-  assert.ok(!all(tree).some((n) => n.props["aria-label"] === "每轮帖子数"), "master off collapses subordinate settings");
+  const tabs = all(tree).filter((n) => n.props.role === "tab");
+  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "峰谷", "高级"]);
+  assert.equal(tabs.filter((n) => n.props["aria-selected"]).length, 1);
+  assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, true);
+  button(tree, "浏览").props.onClick();
+  tree = page.render();
+  assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, false);
   control(tree, "定时浏览总开关").props.onChange({ target: { checked: true } });
   tree = page.render();
   control(tree, "每轮帖子数").props.onChange({ target: { value: "3" } });
+  button(page.render(), "互动").props.onClick();
+  button(page.render(), "概览").props.onClick();
   await poll();
   assert.equal(control(page.render(), "每轮帖子数").props.value, 3, "poll preserves unsaved form");
   await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
@@ -132,6 +140,7 @@ try {
   tree = watched.render();
   assert.ok(text(tree).includes("示例帖子"));
   assert.ok(!text(tree).includes("示例失败"));
+  assert.ok(!text(tree).includes("已读取帖子"), "watched list omits redundant event message");
   assert.equal(all(tree).find((n) => n.type === "a").props.href, "https://www.xiaoheihe.cn/app/bbs/link/123");
   watched.unmount();
   assert.equal(timers.size, 0);
