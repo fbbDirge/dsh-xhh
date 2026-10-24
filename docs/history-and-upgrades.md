@@ -38,7 +38,7 @@ node scripts/bili-compat.mjs /actual/dsh-bili-scroll/index.js \
   --apply --backup-dir=/root/.dsh/maintenance/bili-backups
 ```
 
-之后重启实际的 DSH Web 服务，在已登录宿主的浏览器 Network 中检查 `/api/bili-duty/watched` 的 `total` 和卡片封面；不要为了测试发评论。工具不接触 `seen.md`、日报和凭据文件。重复执行已打补丁的源码不会追加修改。服务器实际安装版本尚未读取时，不能宣称已适配该服务器或已经恢复 27 条。
+之后重启实际的 DSH Web 服务，在已登录宿主的浏览器 Network 中检查 `/api/bili-duty/watched` 的 `total` 和卡片封面；不要为了测试发评论。工具不接触 `seen.md`、日报和凭据文件。重复执行已打补丁的源码不会追加修改。该工具的适配范围与下文线上 2.0.2 的人工维护操作不同，不要直接用它覆盖已经带有其他手工补丁的源码。
 
 ## 防止重装覆盖的维护方式
 
@@ -52,6 +52,20 @@ dsh plugin --profile web add /srv/dsh-plugins/dsh-bili-scroll
 
 小黑盒升级前也先备份 `$DSH_HOME/heybox` 与 profile，只更新小黑盒包。不要删除整个 `$DSH_HOME`、批量重装所有插件，或在两个插件之间复用数据目录。
 
-## 本次服务器连接结果
+## 本次线上部署与验证
 
-对用户指定主机的默认 SSH 22 端口连接在认证前被关闭，多次均未获得 SSH banner / 密码提示。因此本次没有登录服务器、更新线上安装、读取线上凭据或重启服务。需要确认实际 SSH 端口及网络 / 防火墙可达性后，才能完成线上备份、安装和双插件验证。
+2026-10-24 已通过 SSH 22 端口完成部署。此前连接在认证前关闭，使用独立 SSH 参数后成功登录；没有修改用户的 SSH 配置。
+
+- 小黑盒从 0.7.0 更新至 0.9.0，运行代码提交为 `c16c9f6`；服务器语法检查与 30 项测试通过。
+- B 站保留线上 2.0.2 及现有列表解析、8000 字人设补丁，仅移除图片 CDN 请求中的登录 Cookie，元数据 API 请求仍按需携带 Cookie。
+- Web profile 依赖已改为 `heybox: link:/srv/dsh-plugins/dsh-xhh` 和 `dsh-bili-scroll: link:/srv/dsh-plugins/dsh-bili-scroll`，两个包各有独立维护目录。
+- 小黑盒浏览接口返回 50 条，旧 `seen` 已持久迁移至 `watched`；B 站接口仍返回 27 条。初查小黑盒曾为 45 条，停止服务备份时已为 50 条，迁移核对以备份中的 50 条为准。
+- B 站 `seen.md`、当日日报、配置、登录凭据 SHA-256 与升级前一致；小黑盒原有配置与账号文件保留，定时浏览总开关保持开启。
+- B 站封面实测 HTTP 200、`image/jpeg`、470270 字节；小黑盒依赖检查的扫码、Node、npm、DSH 均就绪。
+- `dsh-web.service` 已重启并处于 active；验收没有手动触发浏览、评论或回复。
+
+维护版 B 站另有 `MAINTENANCE.json` 标记与升级保护：点击原有“一键升级”会显示维护提示并停止直接安装上游包，已通过接口验证。否则它会把 profile 的本地链接改回上游包，再次丢失补丁。该保护只存在于这台服务器的 B 站维护副本，小黑盒插件不会修改 B 站代码。具有服务器权限的人仍可主动改回上游安装，不能将此描述为任何操作下都不会覆盖。
+
+本次完整备份位于 `/root/.dsh/maintenance/backups/20261024-130946/profile-and-state.tgz`，含 Web profile 与两个插件完整数据；同目录 `bili-maintained-source.tgz` 保存修复后的 B 站源码。备份包含登录凭据，目录和文件仅限 root 访问，不要上传仓库。最新备份目录记录在 `/root/.dsh/maintenance/latest-backup`；B 站维护说明在 `/srv/dsh-plugins/dsh-bili-scroll/MAINTENANCE.md`。
+
+后续只更新小黑盒时，在 `/srv/dsh-plugins/dsh-xhh` 执行 `git pull --ff-only`、`npm ci --ignore-scripts`、`npm run check`、`npm test`，确认任务空闲后重启 `dsh-web.service`。本地链接会加载新代码，无需重新安装 B 站。B 站上游更新应先合并到独立维护副本，验证列表解析、封面和升级保护后再重启。
