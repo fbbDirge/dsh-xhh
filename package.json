@@ -1,6 +1,6 @@
 {
   "name": "heybox",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "小黑盒 DSH 插件：定时浏览、自动评论 @ 作者、评论回复和谷时调度",
   "license": "MIT",
   "repository": {

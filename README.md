@@ -1,107 +1,80 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/version-0.4.0-blue" alt="version" />
-  <img src="https://img.shields.io/badge/license-MIT-green" alt="license" />
-  <img src="https://img.shields.io/badge/platform-DSH%20Web-blueviolet" alt="platform" />
-  <img src="https://img.shields.io/badge/type-web%20client%20plugin-ff69b4" alt="type" />
-</p>
+# DSH · 刷小黑盒
 
-<h1 align="center">🎮 HeyBox · 小黑盒论坛分区</h1>
+基于 DeepSeek Harness 的小黑盒后台浏览与互动插件。界面参考 [dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)：在 DSH **设置 → 刷小黑盒** 配置任务，在会话的 **刷过的帖子** 标签查看最近浏览记录。不使用侧栏、悬浮胶囊或遮罩面板。
 
-<p align="center">
-  <b>在 DeepSeek Harness Web 会话右侧开一个小黑盒(xiaoheihe.cn)论坛分区。</b><br/>
-  形态与交互移植自 <a href="https://github.com/WenfuRainbow/heybox">WenfuRainbow/heybox</a>(VSCode 小黑盒插件)
-</p>
-
----
-
-## 简介
-
-这个插件把heybox(VSCode 版)的「小黑盒论坛浏览」搬进 DSH Web 的右侧分栏 —— 让 DeepSeek 干活时,
-旁边挂着一个小黑盒。小黑盒的账号态与接口都需要 Cookie 与 hkey 签名,无法从网页直连。
+当前版本：0.5.0。需求分析见 [自动化设计](docs/automation-design.md)，实现和联调结果见 [开发记录](docs/development.md)。
 
 ## 功能
 
-本分支在 `plasta2steel/dsh-xiaoheihe` v0.3.12 上增加后台自动化。需求设计见 [docs/automation-design.md](docs/automation-design.md)，开发结果和联调边界见 [docs/development.md](docs/development.md)。
+| 功能 | 说明 |
+| --- | --- |
+| 定时浏览 | 总开关、1–1440 分钟间隔、每轮 1–10 个未读推荐帖 |
+| 自动评论 | 独立开关，依据帖子生成评论，可添加 `@作者昵称`；提及通知效果尚未验证 |
+| 自动回复 | 独立开关，只处理能核对为回复自己评论的来信 |
+| 谷时策略 | 可选工作日谷时、周末、节假日和补班日期；时区与窗口可配置 |
+| 发送约束 | 每日评论 / 回复额度、共享冷却、账号去重、发送结果未知时不自动重试 |
+| 运行记录 | 立即执行、停止、下次执行时间、今日额度和最近 40 条事件 |
+| 会话标签 | “刷过的帖子”显示最近事件里的浏览记录，点击标题打开小黑盒；所有会话共享 |
+| 账号配置 | 在设置页粘贴 Cookie，由 DSH 宿主持久化；浏览器不保存 Cookie 副本 |
 
-| 模块 | 说明 |
-|---|---|
-| **定时浏览** | 总开关、1–1440 分钟间隔、每轮 1–10 帖、立即执行、停止、状态和历史 |
-| **自动互动** | 独立评论 / 回复开关；评论带 `@作者昵称`（通知未验证）；回复校验父评论关系 |
-| **谷时与额度** | 可选北京时间谷时、每日评论 / 回复额度、共享冷却、持久化去重和超时防重发 |
-| 📌 **推荐** | 热门推荐信息流,滚动到底部「加载更多推荐」 |
-| 📁 **板块** | 热门板块分类(数码硬件 / 盒友杂谈 / Steam…),点板块展开帖子,支持分页加载 |
-| ⭐ **收藏** | 本机收藏 + 服务端同步(调 `/bbs/app/link/favour`),列表点 ★ 取消 |
-| 🔍 **搜索** | 全站帖子搜索、分页「加载更多」、返回列表;粘贴链接或输入帖子 ID 可直接开帖 |
-| 📄 **帖子详情** | 标题/作者/话题标签/正文(JSON 富文本块:图文),图片缩放滑块(5–100%,记忆)、悬停原图预览 |
-| 💬 **评论** | 按楼层组的主评 + 子评论缩进、楼层号、IP 属地、折叠提示;自动分页拉取并去重(上限 700 条,不足时注明) |
-| 🔔 **消息** | 登录后每 3 分钟检查回复/点赞,铃铛显示未读数,列表可跳转、全部已读 |
-| 🔑 **登录** | 粘贴浏览器 Cookie(只发给主机,存 `$DSH_HOME/heybox/state.json`,不下发浏览器) |
-| ◐ **主题** | 跟随 DSH(默认)/ 强制暗色 / 强制亮色,面板内切换 |
-| ⬌ **分区** | 右缘贴会话列的空档,不挡聊天与输入框;可拖宽(340–780px)、Esc/「»」收起;窄窗自动收成胶囊 |
-
-## 数据来源
-
-完全对齐 heybox 的 `src/api/client.ts` + `signature.ts`:
-
-- 接口:`api.xiaoheihe.cn`,`/bbs/app/feeds`(推荐)、`/bbs/app/topic/categories`(板块)、
-  `/bbs/app/topic/feeds`(板块帖子)、`/bbs/app/link/tree`(帖子树/评论)、
-  `/bbs/app/api/general/search/v1/web`(搜索)、`/bbs/app/user/message`(消息)、
-  `/bbs/app/link/favour`(收藏)
-- 每个请求携带公共参数(`os_type=web` / `x_client_type=web` / `device_id` …)与
-  `hkey / _time / nonce` 签名 —— 全部在 dsh web 进程内生成,**浏览器看不到也不持有 Cookie**。
-- 图片/头像经主机 `/heybox/img` 白名单代理(`*.xiaoheihe.cn`、`*.max-c.com`)。
+总开关、自动评论和自动回复默认关闭，默认 30 分钟读 1 帖。自动浏览指读取正文，不保证增加平台浏览量。
 
 ## 安装
 
-**从本仓库安装**（Node 版本需满足已安装 DSH 的要求；开发验证使用 Node 24）
+Node 版本需满足已安装 DSH 的要求，开发验证使用 Node 24：
 
-```bash
+```sh
 dsh plugin --profile web add github:fbbDirge/dsh-xhh
 ```
 
-装完**重启 dsh web** 并刷新页面,右侧即出现分区。
+重启 DSH Web 并刷新页面，打开 **设置 → 刷小黑盒**。本地开发也可安装仓库目录：
 
-本地开发时也可执行 `dsh plugin --profile web add /path/to/dsh-xhh`。原上游 GitHub 安装命令不会安装本分支的自动化功能。本插件与已有同名 `heybox` 插件应二选一，避免挂载两份。
+```sh
+dsh plugin --profile web add /path/to/dsh-xhh
+```
+
+本插件沿用 `heybox` 包名与配置目录，与其他同名插件应二选一，避免重复挂载。由旧版升级时保留宿主已有的账号和任务配置；旧版的论坛侧栏、搜索、收藏等浏览界面已替换为后台任务配置页。
+
+会话的“刷过的帖子”需要宿主支持 `conversation.view`；旧版宿主不支持时仍可在设置页查看最近运行记录。
 
 ## 使用
 
-1. 右侧出现「小黑盒 · HeyBox」分区(空间不足时先点胶囊展开)。
-2. 点「登录」→ 浏览器打开 [xiaoheihe.cn](https://www.xiaoheihe.cn) 并登录 →
-   F12 → Network → 任一请求头里复制 `Cookie` → 粘贴。
-   Cookie 需含 `heybox_id=` / `x_xhh_tokenid=` / `user_pkey=` 之一,过期重新粘贴即可。
-3. 切「推荐 / 板块 / 收藏」浏览;点帖子看正文与评论;🔍 搜索;🔔 看消息。
-4. 点击头部「定时」，配置间隔和每轮数量，开启总开关并保存。默认所有运行 / 发言开关均关闭，默认间隔 30 分钟、每轮 1 帖。
-5. 需要发言时再开启「自动评论」或「自动回复」。评论默认添加 `@当前帖子作者昵称`；当前仅确认纯文本格式，不能保证作者收到提及通知。
-6. 可点「立即执行一轮」，总开关仍需开启。点「停止任务」会停止调度并取消生成；已发往平台的请求无法撤回。
+1. 打开 **设置 → 刷小黑盒 → 绑定账号**。在 [小黑盒网页版](https://www.xiaoheihe.cn) 登录，从开发者工具 Network 的请求头复制 Cookie，粘贴后保存。后台任务需要 Cookie 中能识别 `heybox_id`；保存账号不代表已验证登录有效性。
+2. 开启“定时浏览总开关”，设置间隔和每轮帖子数，点击“保存设置”。先保持评论 / 回复关闭，用“立即执行一轮”验证读取。
+3. 需要发言时开启“自动评论”或“自动回复”，设置额度、冷却和人设后保存。评论中的 `@作者昵称` 当前仅确认纯文本格式，不能保证作者收到通知。
+4. 需要峰谷限制时开启“仅在谷时运行”。默认北京时间工作日 12:00–14:00、18:00–次日 09:00，周末全天；约束整轮浏览和互动。高级设置可修改时区、分钟窗口、节假日及补班日期。这是本地时间策略，不会查询供应商价格。
+5. 点击“停止任务”停止调度并请求取消当前生成。已提交给平台的请求无法撤回。任务运行中需先停止，等待本轮结束后修改设置。
 
-后台必须保持 DSH Web 宿主运行，关闭浏览器不会停止，退出 DSH 后不运行。自动浏览是读取正文，不保证增加平台浏览量。自动回复每轮最多检查最近 100 条回复消息，无法证明是回复自己评论的来信会跳过。
+关闭设置页或浏览器不停止任务；DSH Web 宿主必须持续运行，退出宿主后任务停止。不创建系统定时任务。
 
-自动评论使用已配置的 DSH `headless` 模型。先验证 `dsh --profile headless "只回复测试"` 可正常输出。本机试跑时模型接口返回 HTTP 404，需修正 DSH 的模型配置后再启用真实生成。可在高级设置指定 DSH JS 入口和 Node 可执行路径；插件未修改全局 DSH 配置。
+界面每 5 秒刷新运行状态，不覆盖未保存的表单。会话标签只列出最近 40 条事件中的浏览记录，不是完整浏览档案。自动回复每轮最多检查最近 100 条回复消息，无法确认目标关系时跳过。
 
-## 开发
+自动评论使用已配置的 DSH `headless` 模型，可先验证：
 
-```bash
-npm run check   # node --check
-npm test        # 原有检查 + 设置交互 + 调度/回复/子进程测试
+```sh
+dsh --profile headless "只回复测试"
 ```
 
-结构:
+本机生成试跑曾返回 `HTTP_404: DeepSeek Messages request failed (404)`，需修复已有模型配置后重测。高级设置可指定 DSH 命令 / JS 入口和 Node 可执行路径，插件不修改全局 DSH 配置。目前没有真实账号发送验收结果。
 
-- `lib/index.js` — 主机半:签名 + 公共参数 + Cookie 态、`/heybox/rpc`、`/heybox/state`、`/heybox/img`、`/heybox/health`
-- `lib/client.js` — 浏览器半:右侧分栏 UI(`shell.overlay` 席位,无构建步骤)
-- `lib/automation.js` — 定时调度、持久化记录、额度、回复校验和统一发送
-- `lib/generator.js` / `lib/generation-guard.js` — DSH 结构化生成、取消与工具禁用
-- `cordis.patch.yml` — bundle 挂载行
-- `tests/` — 单测与 smoke
-- `docs/reference-readme.md` — heybox(VSCode 原版)README 摘录
+## 数据与结构
 
-## 致谢与免责
+账号 Cookie 保存于 `$DSH_HOME/heybox/state.json`；调度配置、额度和去重记录保存在 `$DSH_HOME/heybox/automation.json`。默认 `DSH_HOME` 为 `~/.dsh`。模型提示词不含 Cookie。
 
-非官方项目,接口与交互移植自 [WenfuRainbow/heybox](https://github.com/WenfuRainbow/heybox)(MIT),
-仅供学习交流;数据版权归小黑盒所有。
+- `lib/client.js`：`settings.section` 设置页与可选 `conversation.view` 标签；使用宿主 React，无构建步骤。
+- `lib/index.js`：主机签名、Cookie、`/heybox/state`、`/heybox/automation` 等路由；保留原数据接口兼容性。
+- `lib/automation.js`：定时调度、互斥锁、持久化、额度、回复核对和发送。
+- `lib/generator.js` / `lib/generation-guard.js`：DSH 结构化生成、取消、超时与工具禁用。
+- `cordis.patch.yml`：插件挂载配置。
+- `tests/`：签名、设置页 / 会话标签、调度及生成验证。
 
-底座来自 [plasta2steel/dsh-xiaoheihe](https://github.com/plasta2steel/dsh-xiaoheihe)，后台组织方式参考 [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)，保留原 MIT 许可证。
+```sh
+npm run check
+npm test
+```
 
-## License
+## 来源与许可
 
-MIT
+小黑盒数据层来自 [plasta2steel/dsh-xiaoheihe](https://github.com/plasta2steel/dsh-xiaoheihe)，其接口与签名移植自 [WenfuRainbow/heybox](https://github.com/WenfuRainbow/heybox)。设置页入口和后台组织参考 [c1overzz/dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)。保留原 MIT 许可证与致谢。
+
+非官方项目，平台接口可能变动；数据版权归小黑盒所有。MIT，见 [LICENSE](LICENSE)。
