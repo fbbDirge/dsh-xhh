@@ -111,6 +111,7 @@ try {
   control(page.render(), "回复人格").props.onChange({ target: { value: "认真倾听\n简洁回答" } });
   control(page.render(), "评论提及对象").props.onChange({ target: { value: "custom" } });
   control(page.render(), "自定义提及昵称").props.onChange({ target: { value: "@指定用户" } });
+  control(page.render(), "提及用户 ID").props.onChange({ target: { value: "20400212" } });
   button(page.render(), "高级").props.onClick();
   control(page.render(), "生成方式").props.onChange({ target: { value: "external" } });
   control(page.render(), "API Base URL").props.onChange({ target: { value: "https://example.com/v1" } });
@@ -124,6 +125,7 @@ try {
   assert.equal(server.config.postsPerRound, 3);
   assert.equal(server.config.replyPersona, "认真倾听\n简洁回答");
   assert.equal(server.config.mentionName, "@指定用户");
+  assert.equal(server.config.mentionUserId, "20400212");
   assert.equal(server.config.generationProvider, "external");
   assert.equal(control(page.render(), "API Key").props.value, "", "clear key field after save");
   button(page.render(), "编辑配置 JSON").props.onClick();
@@ -178,12 +180,13 @@ try {
   assert.equal(button(page.render(), "正在安装依赖…").props.disabled, true);
   dependencies = { ...dependencies, installing: false, qrReady: true, logs: ["依赖安装完成"] };
   server.interactions = [
-    { at: Date.now(), kind: "comment", status: "sent", postId: "1", text: "@作者 测试评论正文" },
+    { at: Date.now(), kind: "comment", status: "sent", postId: "1", text: '<a data-user-id="8">@作者</a> 测试评论正文', displayText: "@作者 测试评论正文" },
     { at: Date.now(), kind: "reply", status: "unknown", postId: "2", text: "测试回复正文", incoming: "对方的问题" },
   ];
   await poll();
   button(page.render(), "评论记录").props.onClick();
   assert.ok(text(page.render()).includes("@作者 测试评论正文"));
+  assert.ok(!text(page.render()).includes("data-user-id"));
   button(page.render(), "评论回复").props.onClick();
   assert.ok(text(page.render()).includes("测试回复正文"));
   assert.ok(text(page.render()).includes("对方的问题"));
