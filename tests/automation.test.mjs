@@ -70,6 +70,40 @@ test("budget applies to manual rounds; per-post dedup survives restart",async(t)
   assert.equal(reopened.status().interactions[0].text, sent[0].text);
   await reopened.run(); assert.equal(sent.length,1);
 });
+test("watched archive survives event rotation, retry, upgrade and stays isolated from bili files", async (t) => {
+  const { worker, directory } = fixture(t);
+  const bili = path.join(directory, "..", path.basename(directory) + "-bili-duty");
+  fs.mkdirSync(bili);
+  t.after(() => fs.rmSync(bili, { recursive: true, force: true }));
+  const seenFile = path.join(bili, "seen.md");
+  const original = "- 2026-10-24 · BV1dsn86FEKB · 标题 · 挑中（值得看）\n";
+  fs.writeFileSync(seenFile, original);
+  worker.configure({ enabled: true, postsPerRound: 2 });
+  await worker.run();
+  for (let i = 0; i < 205; i++) worker.log("done", "event");
+  assert.equal(worker.status().history.some((v) => v.type === "browse"), false);
+  assert.equal(worker.watched().total, 2);
+  worker.data.accounts[7].seen = {};
+  worker.save();
+  const reopened = new Automation({ directory, account: worker.account });
+  assert.equal(reopened.watched().total, 2);
+  assert.equal(reopened.watched({ limit: 1, offset: 1 }).records.length, 1);
+  assert.equal(reopened.watched().records[0].title, "游戏体验");
+  assert.throws(() => reopened.watched({ limit: 101 }));
+  reopened.account = () => ({ id: "other" });
+  assert.equal(reopened.watched().total, 0);
+  assert.equal(fs.readFileSync(seenFile, "utf8"), original);
+
+  const legacy = JSON.parse(fs.readFileSync(worker.file, "utf8"));
+  delete legacy.accounts[7].watched;
+  legacy.accounts[7].seen = { "1": 100, "2": 200 };
+  legacy.history = [{ type: "browse", postId: "1", at: 100, title: "恢复的标题" }];
+  fs.writeFileSync(worker.file, JSON.stringify(legacy));
+  const migrated = new Automation({ directory, account: worker.account });
+  assert.equal(migrated.watched().total, 2);
+  assert.equal(migrated.watched().records.find((v) => v.postId === "1").title, "恢复的标题");
+  assert.equal(migrated.watched().records.find((v) => v.postId === "2").title, "");
+});
 test("network ambiguity consumes quota and prevents retry",async(t)=>{
   let attempts=0;
   const {worker}=fixture(t);

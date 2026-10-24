@@ -108,6 +108,13 @@ test('host routes persist confirmed account privately and never return credentia
   }
   try {
     apply({ webServer: { register(spec) { routes.set(spec.path, spec); } }, effect() {} });
+    let watchedResult, watchedCode;
+    const watchedResponse = { setHeader() {}, writeHead(code) { watchedCode = code; }, end(value) { watchedResult = JSON.parse(value); } };
+    routes.get('/heybox/watched').handler({ method: 'GET', url: '/heybox/watched?offset=0&limit=50' }, watchedResponse);
+    assert.equal(watchedCode, 200);
+    assert.equal(watchedResult.total, 0);
+    routes.get('/heybox/watched').handler({ method: 'GET', url: '/heybox/watched?limit=999' }, watchedResponse);
+    assert.equal(watchedCode, 400);
     assert.equal((await call('/heybox/dependencies', { action: 'install' }, { origin: 'https://other.example' })).status, 403);
     assert.equal((await call('/heybox/dependencies', { action: 'install' }, { 'content-type': 'text/plain' })).status, 415);
     assert.equal((await call('/heybox/dependencies', { action: 'arbitrary-command', command: 'must-not-run' })).status, 400);

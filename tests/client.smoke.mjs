@@ -26,6 +26,7 @@ let dependencies = { ok: true, qrReady: false, nodeReady: true, nodeVersion: "v2
 global.fetch = async (url, options) => {
   const body = options.body ? JSON.parse(options.body) : null;
   requests.push({ url, body, signal: options.signal });
+  if (url.includes("/watched?")) return { ok: true, status: 200, json: async () => ({ ok: true, total: 1, records: [{ at: Date.now(), type: "browse", title: "示例帖子", postId: "123" }] }) };
   if (url.endsWith("dependencies")) {
     if (body?.action === "install") dependencies = { ...dependencies, installing: true, logs: ["正在安装 qrcode…"] };
     return { ok: true, status: 200, json: async () => structuredClone(dependencies) };
@@ -91,6 +92,7 @@ try {
   assert.equal(page.registrations.get("settings.section").desc.label, "刷小黑盒");
   assert.equal(page.registrations.get("conversation.view").desc.label, "刷过的帖子");
   assert.equal(page.registrations.get("conversation.view").desc.scope, "session");
+  assert.equal(page.registrations.get("conversation.view").desc.id, "heybox-watched");
   page.mount("settings.section");
   await settle();
   let tree = page.render();
@@ -163,6 +165,8 @@ try {
   assert.ok(!text(tree).includes("示例失败"));
   assert.ok(!text(tree).includes("已读取帖子"), "watched list omits redundant event message");
   assert.equal(all(tree).find((n) => n.type === "a").props.href, "https://www.xiaoheihe.cn/app/bbs/link/123");
+  assert.ok(requests.some((r) => r.url.includes("/heybox/watched?offset=0&limit=50")));
+  assert.ok(text(tree).includes("共 1 帖"));
   watched.unmount();
   assert.equal(timers.size, 0);
 
