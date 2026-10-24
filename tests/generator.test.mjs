@@ -35,3 +35,23 @@ test("abort kills the generation subprocess and rejects",async(t)=>{
   controller.abort();
   await assert.rejects(task,/取消/);
 });
+
+test("reply persona applies only to replies and blank falls back to general persona", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "heybox-persona-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const entry = path.join(directory, "fake-dsh.mjs");
+  fs.writeFileSync(entry, `
+    import fs from 'node:fs';
+    fs.writeFileSync('prompt.txt', process.argv.at(-1));
+    process.stdout.write('{"action":"skip"}');
+  `);
+  const config = { ...defaults, persona: "GENERAL_PERSONA", replyPersona: "REPLY_PERSONA\\n第二行", nodePath: process.execPath, dshCommand: entry };
+  for (const kind of ["comment", "reply"]) {
+    await generateDecision({ kind }, config, { directory, signal: new AbortController().signal });
+    const prompt = fs.readFileSync(path.join(directory, "prompt.txt"), "utf8");
+    assert.ok(prompt.includes(kind === "reply" ? "REPLY_PERSONA" : "GENERAL_PERSONA"));
+    assert.ok(!prompt.includes(kind === "reply" ? "GENERAL_PERSONA" : "REPLY_PERSONA"));
+  }
+  await generateDecision({ kind: "reply" }, { ...config, replyPersona: "  " }, { directory, signal: new AbortController().signal });
+  assert.ok(fs.readFileSync(path.join(directory, "prompt.txt"), "utf8").includes("GENERAL_PERSONA"));
+});

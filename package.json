@@ -1,6 +1,6 @@
 {
   "name": "heybox",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "小黑盒 DSH 插件：定时浏览、自动评论 @ 作者、评论回复和谷时调度",
   "license": "MIT",
   "repository": {
@@ -50,8 +50,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "check": "node scripts/bomcheck.mjs && node --check lib/index.js && node --check lib/client.js && node --check lib/automation.js && node --check lib/generator.js && node --check lib/generation-guard.js && node --check lib/login.js",
-    "test": "node tests/rewrite.test.mjs && node tests/client.smoke.mjs && node --test tests/automation.test.mjs tests/generator.test.mjs tests/login.test.mjs",
+    "check": "node scripts/bomcheck.mjs && node --check lib/index.js && node --check lib/client.js && node --check lib/automation.js && node --check lib/generator.js && node --check lib/generation-guard.js && node --check lib/login.js && node --check lib/dependencies.js",
+    "test": "node tests/rewrite.test.mjs && node tests/client.smoke.mjs && node --test tests/automation.test.mjs tests/generator.test.mjs tests/login.test.mjs tests/dependencies.test.mjs",
     "prepublishOnly": "npm run check && npm test"
   },
   "dependencies": {

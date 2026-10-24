@@ -22,9 +22,14 @@ const requests = [];
 let server = { ok: true, config: structuredClone(defaults), busy: false, nextRunAt: null, fault: "", usage: { comment: 0, reply: 0 }, history: [] };
 let account = { ok: true, loggedIn: true, heyboxId: "123" };
 let failSave = false;
+let dependencies = { ok: true, qrReady: false, nodeReady: true, nodeVersion: "v24.0.0", dshReady: true, npmReady: true, installing: false, logs: [], error: "" };
 global.fetch = async (url, options) => {
   const body = options.body ? JSON.parse(options.body) : null;
   requests.push({ url, body, signal: options.signal });
+  if (url.endsWith("dependencies")) {
+    if (body?.action === "install") dependencies = { ...dependencies, installing: true, logs: ["正在安装 qrcode…"] };
+    return { ok: true, status: 200, json: async () => structuredClone(dependencies) };
+  }
   if (body?.action === "configure") {
     if (failSave) return { ok: false, status: 409, json: async () => ({ ok: false, error: "配置保存失败" }) };
     server = { ...server, config: { ...server.config, ...body.config } };
@@ -91,7 +96,7 @@ try {
   let tree = page.render();
   assert.ok(text(tree).includes("已保存 Cookie"));
   const tabs = all(tree).filter((n) => n.props.role === "tab");
-  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "峰谷", "高级"]);
+  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "评论记录", "峰谷", "高级"]);
   assert.equal(tabs.filter((n) => n.props["aria-selected"]).length, 1);
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, true);
   button(tree, "浏览").props.onClick();
@@ -101,12 +106,14 @@ try {
   tree = page.render();
   control(tree, "每轮帖子数").props.onChange({ target: { value: "3" } });
   button(page.render(), "互动").props.onClick();
+  control(page.render(), "回复人格").props.onChange({ target: { value: "认真倾听\n简洁回答" } });
   button(page.render(), "概览").props.onClick();
   await poll();
   assert.equal(control(page.render(), "每轮帖子数").props.value, 3, "poll preserves unsaved form");
   await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
   assert.equal(server.config.enabled, true);
   assert.equal(server.config.postsPerRound, 3);
+  assert.equal(server.config.replyPersona, "认真倾听\n简洁回答");
   assert.equal(typeof server.config.postsPerRound, "number");
   assert.deepEqual(server.config.valleyWindows, defaults.valleyWindows);
   assert.equal(button(page.render(), "立即执行一轮").props.disabled, false);
@@ -126,6 +133,20 @@ try {
   await button(page.render(), "保存账号").props.onClick();
   assert.equal(control(page.render(), "Cookie").props.value, "", "clear cookie after host saves");
   assert.equal(requests.filter((r) => r.body?.action === "login").at(-1).body.cookie, "heybox_id=123; user_pkey=secret");
+  await button(page.render(), "一键安装依赖").props.onClick();
+  assert.equal(button(page.render(), "正在安装依赖…").props.disabled, true);
+  dependencies = { ...dependencies, installing: false, qrReady: true, logs: ["依赖安装完成"] };
+  server.interactions = [
+    { at: Date.now(), kind: "comment", status: "sent", postId: "1", text: "@作者 测试评论正文" },
+    { at: Date.now(), kind: "reply", status: "unknown", postId: "2", text: "测试回复正文", incoming: "对方的问题" },
+  ];
+  await poll();
+  button(page.render(), "评论记录").props.onClick();
+  assert.ok(text(page.render()).includes("@作者 测试评论正文"));
+  button(page.render(), "评论回复").props.onClick();
+  assert.ok(text(page.render()).includes("测试回复正文"));
+  assert.ok(text(page.render()).includes("对方的问题"));
+  assert.ok(!text(page.render()).includes("@作者 测试评论正文"));
   page.unmount();
   assert.equal(timers.size, 0, "poll timer cleaned up");
   assert.ok(styles.at(-1).removed);

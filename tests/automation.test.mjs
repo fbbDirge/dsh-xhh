@@ -25,6 +25,10 @@ function fixture(t, overrides = {}) {
 test("configuration rejects coercion, unknown fields and invalid windows",()=>{
   for(const patch of [{enabled:"true"},{postsPerRound:0},{cooldownSeconds:0},{force:true},{intervalMinutes:1.5},{valleyWindows:[[900,900]]},{timeZone:"bad"}]) assert.throws(()=>validateConfig(patch));
   assert.equal(validateConfig({postsPerRound:3}).postsPerRound,3);
+  assert.equal(validateConfig({ replyPersona: "理性讨论\n不编造经历" }).replyPersona, "理性讨论\n不编造经历");
+  assert.throws(() => validateConfig({ replyPersona: 123 }));
+  assert.throws(() => validateConfig({ replyPersona: "x".repeat(2001) }));
+  assert.throws(() => validateConfig({ replyPersona: "bad\0" }));
 });
 test("valley uses Shanghai boundary, weekend and workday override",()=>{
   assert.equal(inValley(Date.parse("2026-10-23T03:59:00Z"),defaults),false);
@@ -54,6 +58,8 @@ test("timer waits until due, reads chosen batch and never overlaps",async(t)=>{
   assert.equal(sent[0].text,"@作者 这个关卡设计挺有意思。");
   assert.equal(worker.status().usage.comment,2);
   assert.equal(worker.status().history.filter((v)=>v.type==="browse").length,2);
+  assert.equal(worker.status().interactions[0].text, sent[0].text);
+  assert.equal(worker.status().interactions[0].status, "sent");
 });
 test("budget applies to manual rounds; per-post dedup survives restart",async(t)=>{
   const {worker,sent,directory}=fixture(t);
@@ -61,6 +67,7 @@ test("budget applies to manual rounds; per-post dedup survives restart",async(t)
   await worker.run(); await worker.run();
   assert.equal(sent.length,1);
   const reopened=new Automation({directory,account:worker.account,api:worker.api,generate:worker.generate,now:worker.now,wait:worker.wait});
+  assert.equal(reopened.status().interactions[0].text, sent[0].text);
   await reopened.run(); assert.equal(sent.length,1);
 });
 test("network ambiguity consumes quota and prevents retry",async(t)=>{
@@ -72,6 +79,8 @@ test("network ambiguity consumes quota and prevents retry",async(t)=>{
   await worker.run();
   assert.equal(worker.data.accounts[7].actions["post:1"].status,"unknown");
   assert.equal(worker.status().usage.comment,1);
+  assert.equal(worker.status().interactions[0].status, "unknown");
+  assert.ok(worker.status().interactions[0].text.includes("这个关卡"));
   worker.data.accounts[7].seen={}; worker.data.accounts[7].offset=0; worker.save();
   await worker.run(); assert.equal(attempts,1);
 });
@@ -113,7 +122,24 @@ test("replies require an actual parent belonging to us and use incoming/root IDs
   await worker.run();
   assert.equal(sent.length,1); assert.equal(sent[0].reply_id,"91"); assert.equal(sent[0].root_id,"90");
   assert.equal(worker.status().usage.reply,1);
+  assert.equal(worker.status().interactions[0].incoming, "你觉得结局怎么样？");
+  assert.equal(worker.status().interactions[0].kind, "reply");
   await worker.run();assert.equal(sent.length,1);
+});
+
+test("old configs gain reply persona; interaction records are isolated by account and bounded", (t) => {
+  const { worker, account, directory } = fixture(t);
+  const oldConfig = { ...defaults }; delete oldConfig.replyPersona;
+  const actions = Object.fromEntries(Array.from({ length: 110 }, (_, i) => ["post:" + i, { status: "sent", at: i, postId: String(i), text: "正文" + i }]));
+  actions["reply:old"] = { status: "unknown", at: 111, postId: "1" };
+  fs.writeFileSync(worker.file, JSON.stringify({ config: oldConfig, accounts: { "7": { actions } }, history: [] }));
+  const reopened = new Automation({ directory, account: () => account, api: worker.api });
+  assert.equal(reopened.status().config.replyPersona, "");
+  assert.equal(reopened.status().interactions.length, 100);
+  assert.equal(reopened.status().interactions[0].kind, "reply");
+  assert.equal(reopened.status().interactions[0].text, undefined);
+  account.id = "8";
+  assert.deepEqual(reopened.status().interactions, []);
 });
 test("read-only mode needs no model and no send",async(t)=>{
   const {worker,sent}=fixture(t,{generate:async()=>{throw new Error("must not generate");}});

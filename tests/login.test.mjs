@@ -108,6 +108,15 @@ test('host routes persist confirmed account privately and never return credentia
   }
   try {
     apply({ webServer: { register(spec) { routes.set(spec.path, spec); } }, effect() {} });
+    assert.equal((await call('/heybox/dependencies', { action: 'install' }, { origin: 'https://other.example' })).status, 403);
+    assert.equal((await call('/heybox/dependencies', { action: 'install' }, { 'content-type': 'text/plain' })).status, 415);
+    assert.equal((await call('/heybox/dependencies', { action: 'arbitrary-command', command: 'must-not-run' })).status, 400);
+    const envRequest = Readable.from([]);
+    Object.assign(envRequest, { method: 'GET', headers: { host: 'localhost' } });
+    let environment;
+    await routes.get('/heybox/dependencies').handler(envRequest, { setHeader() {}, writeHead() {}, end(value) { environment = JSON.parse(value); } });
+    assert.equal(environment.qrReady, true);
+    assert.equal(environment.installing, false);
     assert.equal((await call('/heybox/login', { action: 'start' }, { origin: 'https://other.example' })).status, 403);
     assert.equal((await call('/heybox/login', { action: 'start' }, { 'content-type': 'text/plain' })).status, 415);
     const started = await call('/heybox/login', { action: 'start' });
