@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Automation, defaults, validateConfig, inValley, mentionText } from "../lib/automation.js";
+import { Automation, defaults, validateConfig, inValley, mentionText, commentText } from "../lib/automation.js";
 import { parseDecision } from "../lib/generator.js";
 
 function fixture(t, overrides = {}) {
@@ -42,6 +42,41 @@ test("valley uses Shanghai boundary, weekend and workday override",()=>{
 test("mention targets current author, invalid identities stop sending",()=>{
   assert.equal(mentionText({userid:8,username:"作者"},"正文"),"@作者 正文");
   assert.throws(()=>mentionText({username:"作者"},"正文"));
+});
+test("custom mentions are added by host and modes survive restart", async (t) => {
+  const { worker, sent, directory } = fixture(t);
+  worker.configure({ enabled: true, autoComment: true, mentionTarget: "custom", mentionName: "指定用户" });
+  await worker.run();
+  assert.equal(sent[0].text, "@指定用户 这个关卡设计挺有意思。");
+  const next = new Automation({ directory, account: worker.account });
+  assert.equal(next.status().config.mentionName, "指定用户");
+  assert.equal(commentText({ ...defaults, mentionTarget: "none" }, null, "正文"), "正文");
+  assert.equal(commentText({ ...defaults, mentionAuthor: false, mentionTarget: "custom" }, null, "正文"), "正文");
+  assert.equal(validateConfig({ mentionTarget: "custom", mentionName: " @指定用户 " }).mentionName, "指定用户");
+  for (const mentionName of ["", "@@用户", "用\n户", "<用户>"]) assert.throws(() => validateConfig({ mentionTarget: "custom", mentionName }));
+});
+test("separate editable config preserves history and redacts keys", async (t) => {
+  const { worker, directory } = fixture(t);
+  worker.configure({ enabled: true, postsPerRound: 2, apiKey: "private-test-key" });
+  await worker.run();
+  const before = worker.watched();
+  const config = JSON.parse(fs.readFileSync(worker.configFile, "utf8"));
+  assert.equal(fs.statSync(worker.configFile).mode & 0o777, 0o600);
+  assert.equal(config.apiKey, "private-test-key");
+  assert.ok(!JSON.stringify(worker.status()).includes("private-test-key"));
+  assert.ok(!fs.readFileSync(worker.file, "utf8").includes("private-test-key"));
+  fs.writeFileSync(worker.configFile, JSON.stringify({ ...config, persona: "文件修改的人格", intervalMinutes: 45 }));
+  worker.reload();
+  assert.equal(worker.status().config.persona, "文件修改的人格");
+  worker.configure({ dailyComments: 2 });
+  assert.equal(worker.data.config.apiKey, "private-test-key");
+  const next = new Automation({ directory, account: worker.account });
+  assert.deepEqual(next.watched(), before);
+  assert.equal(next.status().config.intervalMinutes, 45);
+  assert.equal(next.status().apiKeyConfigured, true);
+  next.configure({ apiKey: "" });
+  assert.equal(next.status().apiKeyConfigured, false);
+  for (const patch of [{ apiBaseUrl: "http://example.com/v1" }, { apiBaseUrl: "https://user:secret@example.com" }, { apiKey: "key\n" }, { generationProvider: "external" }]) assert.throws(() => validateConfig(patch));
 });
 test("model accepts only bounded structured content",()=>{
   assert.equal(parseDecision('{"action":"skip"}').action,"skip");

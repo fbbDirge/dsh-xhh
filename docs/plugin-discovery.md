@@ -25,3 +25,18 @@
 4. 在官方社区介绍插件并询问是否有新的推荐 / 展示入口。发布社区消息需单独授权，本次仅准备说明，没有代发。
 
 自定义索引不会让插件变成官方插件；也不应由插件静默修改用户的索引源。
+
+## awesome-dsh-plugin 社区收录
+
+已按用户提供的 [contributing.md](https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/blob/main/contributing.md) 核对。这是社区维护的列表，合并后可供相关市场展示，不代表 DeepSeek 官方审核或背书。
+
+投稿文件已备好：[fbbDirge__dsh-xhh.yml](submission/fbbDirge__dsh-xhh.yml)。在对方仓库发起 PR，新增 `data/plugins/fbbDirge__dsh-xhh.yml`，内容使用此文件；无需编辑对方自动生成的 README。本插件归入 `fun`，中英文描述与实际行为相符，未宣称原生 @ 通知已验证。
+
+2026-10-24 查询仓库元数据时：创建时间为 `2026-10-24T09:22:05Z`，Topics 为空。提交前需完成：
+
+1. 在 GitHub 仓库 About 中添加 Topic `dsh-plugin`；package.json keywords 不等同于 Topic。
+2. 等待仓库满一天，即北京时间 **2026-10-25 17:22:05** 后提交；指南的 CI 会检查仓库年龄。
+3. 保持 `dsh.bundle.patch` 指向实际存在的 `cordis.patch.yml`，代码可安装、功能可用；本仓库已有对应声明、MIT 许可和测试。
+4. 将 YAML 文件提交到对方仓库，等待 CI 与维护者源码审阅；CI 通过是前提，不等同于保证收录。
+
+截图和 npm 发布为可选项。截图可在本仓库根目录添加 `screenshots.json`，指向已提交的 1–8 张图片；当前没有伪造截图或发布 npm。此次仅准备投稿文件与流程，没有向社区提交 PR；本机 gh 尚未登录。

@@ -2,14 +2,14 @@
 
 基于 DeepSeek Harness 的小黑盒后台浏览与互动插件。界面参考 [dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)：在 DSH **设置 → 刷小黑盒** 配置任务，在会话的 **刷过的帖子** 标签查看最近浏览记录。不使用侧栏、悬浮胶囊或遮罩面板。
 
-当前版本：0.9.0。需求分析见 [自动化设计](docs/automation-design.md)，实现和联调结果见 [开发记录](docs/development.md)。双插件历史与升级见 [历史隔离](docs/history-and-upgrades.md)，官方发现机制见 [插件发布](docs/plugin-discovery.md)。
+当前版本：0.10.0。需求分析见 [自动化设计](docs/automation-design.md)，实现和联调结果见 [开发记录](docs/development.md)。双插件历史与升级见 [历史隔离](docs/history-and-upgrades.md)，官方发现机制见 [插件发布](docs/plugin-discovery.md)。
 
 ## 功能
 
 | 功能 | 说明 |
 | --- | --- |
 | 定时浏览 | 总开关、1–1440 分钟间隔、每轮 1–10 个未读推荐帖 |
-| 自动评论 | 独立开关，依据帖子生成评论，可添加 `@作者昵称`；提及通知效果尚未验证 |
+| 自动评论 | 独立开关，依据帖子生成评论，可选择作者、自定义 `@昵称` 或不提及；提及通知效果尚未验证 |
 | 自动回复 | 独立开关，只处理能核对为回复自己评论的来信 |
 | 发言人格 | 通用人设与独立回复人格，支持多行；回复人格留空沿用通用人设 |
 | 评论记录 | 查看当前账号最近 100 条评论 / 回复的正文、来信内容和发送状态，可分类筛选 |
@@ -40,6 +40,8 @@ dsh plugin --profile web add /path/to/dsh-xhh
 
 设置页采用「概览 / 账号 / 浏览 / 互动 / 评论记录 / 峰谷 / 高级」七个顶部 Tab，窄屏可横向滚动菜单。切换菜单保留未保存的修改和扫码状态；底部「保存设置」统一保存所有菜单的配置。概览展示运行状态、今日额度和最近动态。
 
+0.10.0 新增自定义 @ 昵称、第三方模型 API 和独立配置 JSON 编辑，使用方法见 [配置说明](docs/configuration.md)。第三方模型同样使用通用人格 / 回复人格；提及通知仍未完成平台端验证。
+
 会话的“刷过的帖子”需要宿主支持 `conversation.view`；旧版宿主不支持时仍可在设置页查看最近运行记录。
 
 ## 使用
@@ -51,13 +53,13 @@ dsh plugin --profile web add /path/to/dsh-xhh
 5. 在「峰谷」Tab 按需开启“仅在谷时运行”。默认北京时间工作日 12:00–14:00、18:00–次日 09:00，周末全天；约束整轮浏览和互动。同一 Tab 可修改时区、分钟窗口、节假日及补班日期。这是本地时间策略，不会查询供应商价格。
 6. 点击“停止任务”停止调度并请求取消当前生成。已提交给平台的请求无法撤回。任务运行中需先停止，等待本轮结束后修改设置。
 7. 在「评论记录」Tab 查看本账号最近 100 条发起的评论 / 回复，按「全部 / 帖子评论 / 评论回复」筛选。记录包含实际提交正文（含作者提及）、回复收到的原文、帖子链接及发送状态。升级前未保存的正文无法补回；“已发送”表示平台返回评论 ID，不代表已验证公开可见；结果未知不会自动重发。
-8. 在「高级 → 依赖与环境」查看 Node、DSH 命令、npm 与扫码依赖状态。点击「一键安装依赖」将固定版本 `qrcode@1.5.4` 安装到 `$DSH_HOME/heybox/dependencies`，无需重启，进度每 5 秒刷新；切换菜单或关闭网页仍会继续，退出宿主会中止。安装失败可重试，需要宿主有可用的 npm 和网络。DSH 随宿主安装，模型连接仍在 DSH 中配置。
+8. 在「高级 → 依赖与环境」查看 Node、DSH 命令、npm 与扫码依赖状态。点击「一键安装依赖」将固定版本 `qrcode@1.5.4` 安装到 `$DSH_HOME/heybox/dependencies`，无需重启，进度每 5 秒刷新；切换菜单或关闭网页仍会继续，退出宿主会中止。安装失败可重试，需要宿主有可用的 npm 和网络。DSH 随宿主安装；也可在下方「模型来源」切换第三方 API。
 
 关闭设置页或浏览器不停止任务；DSH Web 宿主必须持续运行，退出宿主后任务停止。不创建系统定时任务。
 
 界面每 5 秒刷新运行状态，不覆盖未保存的表单。会话标签使用独立浏览档案，不随最近运行事件轮转消失；旧版从已保存的帖子 ID / 时间及尚存日志迁移，丢失的旧标题不能补回。自动回复每轮最多检查最近 100 条回复消息，无法确认目标关系时跳过。
 
-自动评论使用已配置的 DSH `headless` 模型，可先验证：
+默认使用已配置的 DSH `headless` 模型，可先验证：
 
 ```sh
 dsh --profile headless "只回复测试"
@@ -67,7 +69,7 @@ dsh --profile headless "只回复测试"
 
 ## 数据与结构
 
-账号 Cookie 保存于 `$DSH_HOME/heybox/state.json`；调度配置、人格、额度、去重记录及已发起的评论正文保存在 `$DSH_HOME/heybox/automation.json`。本地补装的扫码依赖位于 `$DSH_HOME/heybox/dependencies`。默认 `DSH_HOME` 为 `~/.dsh`。模型提示词不含 Cookie。
+账号 Cookie 保存于 `$DSH_HOME/heybox/state.json`；调度配置、人格和第三方 API 密钥保存在独立的 `$DSH_HOME/heybox/config.json`（权限 0600）；额度、去重、浏览档案及已发起的评论正文保存在 `$DSH_HOME/heybox/automation.json`。旧版首次启动会自动迁移配置，保留任务与历史。本地补装的扫码依赖位于 `$DSH_HOME/heybox/dependencies`。默认 `DSH_HOME` 为 `~/.dsh`。模型提示词不含 Cookie。
 
 - `lib/client.js`：`settings.section` 设置页与可选 `conversation.view` 标签；使用宿主 React，无构建步骤。
 - `lib/index.js`：主机签名、Cookie、`/heybox/state`、`/heybox/automation` 等路由；保留原数据接口兼容性。
