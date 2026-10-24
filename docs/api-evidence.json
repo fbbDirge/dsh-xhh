@@ -1,0 +1,33 @@
+{
+  "tool": "REA 6.7.0 analyze-javascript-application",
+  "evidence_id": "ev_1d8945ce6edb09fb3783b13ae2cfb7d4dffc9a779ce06ce2cadece1dade8a578",
+  "root_artifact_sha256": "6c01d291a586a984cbc41df957b780b2181fb628d27624ccd5360cf3f649c3e5",
+  "scope": "Five official public website JavaScript modules; static analysis only",
+  "files": [
+    {
+      "name": "index-ChvP9RfD.js",
+      "sha256": "569a795ed630bac832be5d600e20ea7ff03083321d0b7b3659294a39678e50cf"
+    },
+    {
+      "name": "index-D_XVyLQt.js",
+      "sha256": "5aa993cb3df215d9370516e0c23a80ecfa20ffa0d3b727416bf1d63a7f5f795f"
+    },
+    {
+      "name": "index.js",
+      "sha256": "3ae0cf89e3926a5ba9613945087367af90d37700f87ba7cf5b22823a7cbd1591"
+    },
+    {
+      "name": "index.vue_vue_type_script_setup_true_lang-CQnsYLH2.js",
+      "sha256": "3401975b3e1a1e941fa63d9f87457c39cb7701c4d2a50badad3248d4bc68d90f"
+    },
+    {
+      "name": "post.js",
+      "sha256": "eccbd973b019de306c4c9b61dd1f1fbadabaab65cfa64775af87e75aa6d47a48"
+    }
+  ],
+  "limitations": [
+    "No authenticated platform calls",
+    "No notification semantics established",
+    "No live rendering of official editor observed"
+  ]
+}
