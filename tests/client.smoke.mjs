@@ -98,7 +98,7 @@ try {
   let tree = page.render();
   assert.ok(text(tree).includes("已保存 Cookie"));
   const tabs = all(tree).filter((n) => n.props.role === "tab");
-  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "评论记录", "峰谷", "高级"]);
+  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "评论记录", "运行时段", "高级"]);
   assert.equal(tabs.filter((n) => n.props["aria-selected"]).length, 1);
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, true);
   button(tree, "浏览").props.onClick();
@@ -106,7 +106,7 @@ try {
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, false);
   control(tree, "定时浏览总开关").props.onChange({ target: { checked: true } });
   tree = page.render();
-  control(tree, "每轮帖子数").props.onChange({ target: { value: "3" } });
+  control(tree, "每轮最多浏览帖子数").props.onChange({ target: { value: "3" } });
   button(page.render(), "互动").props.onClick();
   control(page.render(), "回复人格").props.onChange({ target: { value: "认真倾听\n简洁回答" } });
   control(page.render(), "评论提及对象").props.onChange({ target: { value: "custom" } });
@@ -119,7 +119,7 @@ try {
   control(page.render(), "API Key").props.onChange({ target: { value: "private-key" } });
   button(page.render(), "概览").props.onClick();
   await poll();
-  assert.equal(control(page.render(), "每轮帖子数").props.value, 3, "poll preserves unsaved form");
+  assert.equal(control(page.render(), "每轮最多浏览帖子数").props.value, 3, "poll preserves unsaved form");
   await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
   assert.equal(server.config.enabled, true);
   assert.equal(server.config.postsPerRound, 3);
@@ -138,9 +138,9 @@ try {
   assert.deepEqual(server.config.valleyWindows, defaults.valleyWindows);
   assert.equal(button(page.render(), "立即执行一轮").props.disabled, false);
 
-  button(page.render(), "峰谷").props.onClick();
+  button(page.render(), "运行时段").props.onClick();
   button(page.render(), "峰底快捷方案").props.onClick();
-  assert.equal(control(page.render(), "按自定义时段运行").props.checked, true);
+  assert.equal(control(page.render(), "限制任务开始时段").props.checked, true);
   assert.equal(control(page.render(), "工作日时段结束 1").props.value, "06:00");
   control(page.render(), "工作日时段开始 1").props.onChange({ target: { value: "22:30" } });
   control(page.render(), "工作日时段结束 1").props.onChange({ target: { value: "05:15" } });
@@ -153,7 +153,7 @@ try {
   assert.deepEqual(server.config.weekendWindows, []);
   assert.deepEqual(server.config.holidayWindows, [[0, 1440]]);
   button(page.render(), "不限时段").props.onClick();
-  assert.equal(control(page.render(), "按自定义时段运行").props.checked, false);
+  assert.equal(control(page.render(), "限制任务开始时段").props.checked, false);
   assert.equal(control(page.render(), "工作日时段开始 1").props.value, "22:30");
   button(page.render(), "峰谷快捷方案").props.onClick();
   assert.equal(control(page.render(), "工作日时段开始 2").props.value, "18:00");
