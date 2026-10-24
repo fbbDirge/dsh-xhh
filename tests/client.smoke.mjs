@@ -136,6 +136,29 @@ try {
   assert.deepEqual(server.config.valleyWindows, defaults.valleyWindows);
   assert.equal(button(page.render(), "立即执行一轮").props.disabled, false);
 
+  button(page.render(), "峰谷").props.onClick();
+  button(page.render(), "峰底快捷方案").props.onClick();
+  assert.equal(control(page.render(), "按自定义时段运行").props.checked, true);
+  assert.equal(control(page.render(), "工作日时段结束 1").props.value, "06:00");
+  control(page.render(), "工作日时段开始 1").props.onChange({ target: { value: "22:30" } });
+  control(page.render(), "工作日时段结束 1").props.onChange({ target: { value: "05:15" } });
+  button(page.render(), "周末时段不运行").props.onClick();
+  button(page.render(), "节假日时段全天").props.onClick();
+  await poll();
+  assert.equal(control(page.render(), "工作日时段开始 1").props.value, "22:30");
+  await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.deepEqual(server.config.valleyWindows, [[1350, 315]]);
+  assert.deepEqual(server.config.weekendWindows, []);
+  assert.deepEqual(server.config.holidayWindows, [[0, 1440]]);
+  button(page.render(), "不限时段").props.onClick();
+  assert.equal(control(page.render(), "按自定义时段运行").props.checked, false);
+  assert.equal(control(page.render(), "工作日时段开始 1").props.value, "22:30");
+  button(page.render(), "峰谷快捷方案").props.onClick();
+  assert.equal(control(page.render(), "工作日时段开始 2").props.value, "18:00");
+  assert.equal(control(page.render(), "周末时段结束 1").props.value, "00:00");
+  await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.deepEqual(server.config.valleyWindows, defaults.valleyWindows);
+
   failSave = true;
   await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
   assert.ok(text(page.render()).includes("配置保存失败"));

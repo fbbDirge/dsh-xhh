@@ -39,6 +39,24 @@ test("valley uses Shanghai boundary, weekend and workday override",()=>{
   assert.equal(inValley(noon,defaults),true);
   assert.equal(inValley(noon,{...defaults,workdays:["2026-10-24"]}),false);
 });
+test("custom schedule supports independent day types, full day and midnight boundaries", () => {
+  const config = validateConfig({ valleyWindows: [[570, 645], [1320, 120]], weekendWindows: [[60, 180]], holidayWindows: [] });
+  const at = (local) => Date.parse(local + "+08:00");
+  for (const [local, allowed] of [
+    ["2026-10-23T09:29:00", false], ["2026-10-23T09:30:00", true],
+    ["2026-10-23T10:45:00", false], ["2026-10-23T22:00:00", true],
+    ["2026-10-23T01:59:00", true], ["2026-10-23T02:00:00", false],
+    ["2026-10-24T01:00:00", true], ["2026-10-24T03:00:00", false],
+  ]) assert.equal(inValley(at(local), config), allowed, local);
+  assert.equal(inValley(at("2026-10-24T01:00:00"), { ...config, holidays: ["2026-10-24"] }), false);
+  assert.equal(inValley(at("2026-10-24T09:30:00"), { ...config, workdays: ["2026-10-24"] }), true);
+  assert.equal(inValley(at("2026-10-23T23:59:00"), validateConfig({ valleyWindows: [[0, 1440]] })), true);
+  assert.equal(inValley(at("2026-10-23T00:00:00"), validateConfig({ valleyWindows: [[0, 1440]] })), true);
+  for (const key of ["valleyWindows", "weekendWindows", "holidayWindows"]) {
+    for (const window of [[1440, 0], [0, 1441], [-1, 60], [60, 60], [0.5, 60]]) assert.throws(() => validateConfig({ [key]: [window] }));
+    assert.deepEqual(validateConfig({ [key]: [] })[key], []);
+  }
+});
 test("mention targets current author, invalid identities stop sending",()=>{
   assert.equal(mentionText({userid:8,username:"作者"},"正文"),"@作者 正文");
   assert.throws(()=>mentionText({username:"作者"},"正文"));
