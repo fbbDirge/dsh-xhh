@@ -91,7 +91,12 @@ test('host routes persist confirmed account privately and never return credentia
   const priorFetch = global.fetch;
   process.env.DSH_HOME = directory;
   const routes = new Map();
-  global.fetch = async (url) => {
+  const requests = [];
+  fs.mkdirSync(path.join(directory, 'heybox'));
+  const stateFile = path.join(directory, 'heybox', 'state.json');
+  fs.writeFileSync(stateFile, JSON.stringify({ deviceId: 'legacy-device', cookie: 'heybox_id=999; user_pkey=legacy-secret', heyboxId: '999' }), { mode: 0o644 });
+  global.fetch = async (url, options) => {
+    requests.push({ url: String(url), options });
     const endpoint = new URL(url).pathname;
     const data = endpoint === '/account/get_qrcode_url/'
       ? { status: 'ok', result: { qr_url: qrUrl, expire: 120 } }
@@ -108,6 +113,12 @@ test('host routes persist confirmed account privately and never return credentia
   }
   try {
     apply({ webServer: { register(spec) { routes.set(spec.path, spec); } }, effect() {} });
+    assert.equal(fs.statSync(stateFile).mode & 0o777, 0o600, 'tighten legacy credential permissions');
+    for (const route of ['/heybox/state', '/heybox/rpc']) {
+      assert.equal((await call(route, { action: 'logout' }, { origin: 'https://other.example' })).status, 403);
+      assert.equal((await call(route, { action: 'logout' }, { 'content-type': 'text/plain' })).status, 415);
+    }
+    assert.equal(requests.length, 0, 'rejected browser requests never reach upstream');
     let watchedResult, watchedCode;
     const watchedResponse = { setHeader() {}, writeHead(code) { watchedCode = code; }, end(value) { watchedResult = JSON.parse(value); } };
     routes.get('/heybox/watched').handler({ method: 'GET', url: '/heybox/watched?offset=0&limit=50' }, watchedResponse);
@@ -132,6 +143,11 @@ test('host routes persist confirmed account privately and never return credentia
     const confirmed = await call('/heybox/login', { action: 'poll', sessionId: started.result.sessionId });
     assert.equal(confirmed.result.status, 'authenticated');
     assert.ok(!JSON.stringify(confirmed).includes('host-only'));
+    assert.ok(requests.length >= 2);
+    for (const request of requests) {
+      assert.equal(new URL(request.url).origin, 'https://api.xiaoheihe.cn');
+      assert.equal(request.options.redirect, 'error', 'never follow upstream redirects');
+    }
     const file = path.join(directory, 'heybox', 'state.json');
     const saved = JSON.parse(fs.readFileSync(file));
     assert.equal(saved.heyboxId, '123');
@@ -140,6 +156,12 @@ test('host routes persist confirmed account privately and never return credentia
     const publicState = await call('/heybox/state', { action: 'logout' });
     assert.equal(publicState.result.loggedIn, false);
     assert.ok(!JSON.stringify(publicState).includes('host-only'));
+    const manual = await call('/heybox/state', { action: 'login', cookie: 'heybox_id=456; user_pkey=manual-secret' });
+    assert.equal(manual.result.loggedIn, true);
+    assert.ok(!JSON.stringify(manual).includes('manual-secret'));
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600, 'manual login uses private atomic storage');
+    assert.ok(JSON.parse(fs.readFileSync(file)).cookie.includes('manual-secret'));
+    assert.deepEqual(fs.readdirSync(path.dirname(file)).filter((name) => name.endsWith('.tmp')), []);
   } finally {
     global.fetch = priorFetch;
     if (priorHome === undefined) delete process.env.DSH_HOME; else process.env.DSH_HOME = priorHome;

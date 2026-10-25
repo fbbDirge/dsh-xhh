@@ -1,11 +1,11 @@
 {
   "name": "heybox",
-  "version": "0.10.2",
+  "version": "0.10.3",
   "description": "小黑盒 DSH 插件：定时浏览、自动评论 @ 作者、评论回复和谷时调度",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/fbbDirge/dsh-xhh.git"
+    "url": "https://github.com/fbbDirge/dsh-xiaoheihe.git"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -21,7 +21,8 @@
     "cordis.patch.yml",
     "README.md",
     "LICENSE",
-    "docs"
+    "docs",
+    "screenshots.json"
   ],
   "dsh": {
     "client": {
@@ -57,8 +58,8 @@
   "dependencies": {
     "qrcode": "^1.5.4"
   },
-  "homepage": "https://github.com/fbbDirge/dsh-xhh#readme",
+  "homepage": "https://github.com/fbbDirge/dsh-xiaoheihe#readme",
   "bugs": {
-    "url": "https://github.com/fbbDirge/dsh-xhh/issues"
+    "url": "https://github.com/fbbDirge/dsh-xiaoheihe/issues"
   }
 }
