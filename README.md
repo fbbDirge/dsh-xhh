@@ -105,7 +105,7 @@ dsh plugin --profile web add /path/to/dsh-xiaoheihe
 dsh --profile headless "只回复测试"
 ```
 
-本机生成试跑曾返回 `HTTP_404: DeepSeek Messages request failed (404)`，需修复已有模型配置后重测。高级设置可指定 DSH 命令 / JS 入口和 Node 可执行路径，插件不修改全局 DSH 配置。目前没有真实账号发送验收结果。扫码已实测官方二维码申请和等待状态；手机确认后的完整登录依靠模拟回执测试，仍需真实 App 验收。
+高级设置可指定 DSH 命令 / JS 入口和 Node 可执行路径，插件不修改全局 DSH 配置。使用前请确认所选模型可正常响应，并使用自己的账号确认扫码登录与互动效果。自动化测试使用模拟回执，不等同于平台端到端验证。
 
 ## 数据与结构
 

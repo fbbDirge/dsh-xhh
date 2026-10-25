@@ -58,10 +58,10 @@ test("custom schedule supports independent day types, full day and midnight boun
   }
 });
 test("mention targets current author, invalid identities stop sending",()=>{
-  const markup = mentionText({userid:"20400212",username:"风知晚晚"},"正文");
-  assert.equal(markup, '<a data-user-id="20400212" href="https://api.xiaoheihe.cn/open_inapp/#heybox://%7B%22protocol_type%22%3A%22openUser%22%2C%22user_id%22%3A%2220400212%22%7D">@风知晚晚</a> 正文');
+  const markup = mentionText({userid:"12345678",username:"示例用户"},"正文");
+  assert.equal(markup, '<a data-user-id="12345678" href="https://api.xiaoheihe.cn/open_inapp/#heybox://%7B%22protocol_type%22%3A%22openUser%22%2C%22user_id%22%3A%2212345678%22%7D">@示例用户</a> 正文');
   const href = markup.match(/href="([^"]+)"/)[1];
-  assert.deepEqual(JSON.parse(decodeURIComponent(href.split("#heybox://")[1])), { protocol_type:"openUser", user_id:"20400212" });
+  assert.deepEqual(JSON.parse(decodeURIComponent(href.split("#heybox://")[1])), { protocol_type:"openUser", user_id:"12345678" });
   assert.equal(new URLSearchParams(new URLSearchParams({ text:markup }).toString()).get("text"), markup);
   assert.ok(mentionText({userid:8,username:'A&B "昵称"'},"正文").includes('@A&amp;B &quot;昵称&quot;</a>'));
   assert.throws(()=>mentionText({username:"作者"},"正文"));
@@ -70,18 +70,18 @@ test("mention targets current author, invalid identities stop sending",()=>{
 });
 test("custom mentions are added by host and modes survive restart", async (t) => {
   const { worker, sent, directory } = fixture(t);
-  worker.configure({ enabled: true, autoComment: true, mentionTarget: "custom", mentionName: "指定用户", mentionUserId: "20400212" });
+  worker.configure({ enabled: true, autoComment: true, mentionTarget: "custom", mentionName: "指定用户", mentionUserId: "12345678" });
   await worker.run();
-  assert.equal(sent[0].text, mentionText({userid:"20400212",username:"指定用户"}, "这个关卡设计挺有意思。"));
+  assert.equal(sent[0].text, mentionText({userid:"12345678",username:"指定用户"}, "这个关卡设计挺有意思。"));
   const next = new Automation({ directory, account: worker.account });
   assert.equal(next.status().config.mentionName, "指定用户");
-  assert.equal(next.status().config.mentionUserId, "20400212");
+  assert.equal(next.status().config.mentionUserId, "12345678");
   assert.equal(commentText({ ...defaults, mentionTarget: "none" }, null, "正文"), "正文");
   assert.equal(commentText({ ...defaults, mentionAuthor: false, mentionTarget: "custom" }, null, "正文"), "正文");
   assert.equal(validateConfig({ mentionTarget: "custom", mentionName: " @指定用户 " }).mentionName, "指定用户");
   for (const mentionName of ["", "@@用户", "用\n户", "<用户>"]) assert.throws(() => validateConfig({ mentionTarget: "custom", mentionName }));
-  for (const mentionUserId of [null, 20400212, "0", "-8", "1e8", "<8>", "1".repeat(21)]) assert.throws(() => validateConfig({ mentionUserId }));
-  assert.equal(validateConfig({ mentionUserId: " 20400212 " }).mentionUserId, "20400212");
+  for (const mentionUserId of [null, 12345678, "0", "-8", "1e8", "<8>", "1".repeat(21)]) assert.throws(() => validateConfig({ mentionUserId }));
+  assert.equal(validateConfig({ mentionUserId: " 12345678 " }).mentionUserId, "12345678");
 });
 test("legacy nickname-only configs stay readable but never send an unbound mention", async (t) => {
   const { worker, sent } = fixture(t);

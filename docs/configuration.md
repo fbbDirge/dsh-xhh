@@ -4,7 +4,7 @@
 
 在「互动」开启「评论时添加 @ 提及」，再选择帖子作者、自定义用户或不提及。自定义需要同时填写昵称和数字用户 ID；昵称支持 `昵称` 和 `@昵称`，保存时统一去掉前缀。昵称和 ID 必须属于同一账号，插件不会按昵称自动搜索或确认身份。此设置影响帖子评论；评论回复仍通过平台 `reply_id/root_id` 指向来信。
 
-0.10.2 根据用户提供的官方 App 选择用户后的评论标记生成提及：`<a data-user-id="20400212" href="https://api.xiaoheihe.cn/open_inapp/#heybox://%7B%22protocol_type%22%3A%22openUser%22%2C%22user_id%22%3A%2220400212%22%7D">@风知晚晚</a>`。作者模式从帖子作者数据读取 ID 与昵称；自定义模式使用 `mentionUserId` 与 `mentionName`。链接由宿主生成并放入 `text` 表单字段，昵称进行 HTML 转义，模型仍不能生成 HTML 或 @。
+0.10.2 根据用户提供的官方 App 选择用户后的评论标记生成提及：`<a data-user-id="12345678" href="https://api.xiaoheihe.cn/open_inapp/#heybox://%7B%22protocol_type%22%3A%22openUser%22%2C%22user_id%22%3A%2212345678%22%7D">@示例用户</a>`。作者模式从帖子作者数据读取 ID 与昵称；自定义模式使用 `mentionUserId` 与 `mentionName`。链接由宿主生成并放入 `text` 表单字段，昵称进行 HTML 转义，模型仍不能生成 HTML 或 @。
 
 旧版只填昵称的配置仍能读取，历史保留；自定义 @ 缺少 ID 时会记录明确错误并停止该条评论发送，不再降级成普通文字。补齐 ID 并保存后对后续新帖子生效，不会重新发送旧评论。当前已验证标记与样本一致、提交编码保留原文；该样本是已显示评论中的标记，并非创建请求抓包，平台是否接受此标记并触发通知仍需真实账号联调。
 
@@ -28,8 +28,8 @@ API Key 保存在服务器配置文件，状态接口不返回密钥；表单留
 {
   "mentionAuthor": true,
   "mentionTarget": "custom",
-  "mentionName": "风知晚晚",
-  "mentionUserId": "20400212",
+  "mentionName": "示例用户",
+  "mentionUserId": "12345678",
   "generationProvider": "external",
   "apiBaseUrl": "https://api.example.com/v1",
   "apiModel": "your-model",

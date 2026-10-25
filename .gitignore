@@ -5,3 +5,11 @@ node_modules/
 .env.*
 !.env.example
 coverage/
+.dsh/
+state.json
+config.json
+automation.json
+*.pem
+*.key
+*.p12
+*.pfx
