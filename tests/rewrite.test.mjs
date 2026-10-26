@@ -4,6 +4,7 @@
  */
 import assert from "node:assert/strict";
 import {
+  requestHeybox,
   safeUrl,
   isAllowedHost,
   heyboxIdFromCookie,
@@ -71,3 +72,18 @@ for (let i = 0; i < 20; i++) {
 }
 
 console.log("host helpers test passed ✔");
+
+
+// HTTP errors may be HTML; classification must not depend on JSON parsing.
+const originalFetch = globalThis.fetch;
+try {
+  for (const [status, body, kind] of [
+    [401, "Unauthorized", "authentication"],
+    [429, "Too many requests", "rate_limit"],
+    [200, JSON.stringify({status:"show_captcha"}), "captcha"],
+    [200, JSON.stringify({status:"relogin"}), "authentication"],
+  ]) {
+    globalThis.fetch = async () => new Response(body, {status});
+    await assert.rejects(requestHeybox({cookie:"test-only",deviceId:"test"}, "/bbs/app/user/message"), (error) => error.kind === kind);
+  }
+} finally { globalThis.fetch = originalFetch; }

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { Automation, defaults, validateConfig, inValley, mentionText, commentText } from "../lib/automation.js";
+import { Automation, defaults, validateConfig, inValley, mentionText, commentText, isNewReply } from "../lib/automation.js";
 import { parseDecision } from "../lib/generator.js";
 
 function fixture(t, overrides = {}) {
@@ -218,8 +218,8 @@ test("replies require an actual parent belonging to us and use incoming/root IDs
   const read=worker.api;
   worker.api=async(...args)=>{
     if(args[1].endsWith("/message")) return {result:{messages:[
-      {comment_a_id:91,root_comment_id:90,linkid:1},
-      {comment_a_id:92,root_comment_id:90,linkid:1},
+      {comment_a_id:91,root_comment_id:90,linkid:1,is_read:0},
+      {comment_a_id:92,root_comment_id:90,linkid:1,is_read:0},
     ]}};
     if(args[1].endsWith("/tree")) {
       const result=await read(...args);
@@ -232,12 +232,12 @@ test("replies require an actual parent belonging to us and use incoming/root IDs
     return read(...args);
   };
   worker.configure({enabled:true,autoReply:true,repliesPerRound:5,dailyComments:0});
-  await worker.run();
+  await worker.run("reply");
   assert.equal(sent.length,1); assert.equal(sent[0].reply_id,"91"); assert.equal(sent[0].root_id,"90");
   assert.equal(worker.status().usage.reply,1);
   assert.equal(worker.status().interactions[0].incoming, "你觉得结局怎么样？");
   assert.equal(worker.status().interactions[0].kind, "reply");
-  await worker.run();assert.equal(sent.length,1);
+  await worker.run("reply");assert.equal(sent.length,1);
 });
 
 test("old configs gain reply persona; interaction records are isolated by account and bounded", (t) => {
@@ -274,4 +274,102 @@ test("temporary generation failure retries the same post without consuming send 
   assert.equal(worker.status().usage.comment,0);
   worker.generate=generate;await worker.run();
   assert.equal(sent.length,1);assert.equal(sent[0].link_id,"1");
+});
+
+test("reply freshness respects explicit read flags and seconds/millisecond timestamps", () => {
+  const baseline = Date.parse("2026-10-23T12:00:00Z");
+  assert.equal(isNewReply({is_read:0}, baseline), true);
+  assert.equal(isNewReply({is_unread:false,timestamp:baseline+1000}, baseline), false);
+  assert.equal(isNewReply({read_status:"unread"}, baseline), true);
+  assert.equal(isNewReply({read_status:"read"}, baseline), false);
+  assert.equal(isNewReply({timestamp:(baseline+1000)/1000}, baseline), true);
+  assert.equal(isNewReply({create_at:baseline+1000}, baseline), true);
+  for (const message of [{}, {timestamp:"bad"}, {timestamp:baseline}, {is_read:"unknown"}]) assert.equal(isNewReply(message,baseline),false);
+  for (const patch of [{replyIntervalSeconds:29},{replyIntervalSeconds:86401},{replyFollowSchedule:"true"}]) assert.throws(()=>validateConfig(patch));
+});
+
+test("reply polling runs without browsing and preserves its independent due time", async (t) => {
+  const {worker,advance}=fixture(t);
+  let checks=0, feeds=0;
+  const read=worker.api;
+  worker.api=async(...args)=>{if(args[1].endsWith('/message')) checks++; if(args[1].endsWith('/feeds')) feeds++; return read(...args);};
+  worker.configure({autoReply:true,replyIntervalSeconds:30});
+  await worker.tick(); assert.equal(checks,1); assert.equal(feeds,0);
+  const next=worker.status().nextReplyAt;
+  await worker.tick(); assert.equal(checks,1);
+  worker.configure({persona:"认真回答"}); assert.equal(worker.status().nextReplyAt,next);
+  advance(30000); await worker.tick(); assert.equal(checks,2);
+  worker.configure({enabled:true,intervalMinutes:1});
+  advance(60000); await worker.tick(); await worker.tick();
+  assert.equal(feeds,1); assert.equal(checks,3);
+  assert.equal(worker.status().nextReplyAt,worker.now()+30000);
+});
+
+test("replies can run all day or follow browsing windows",async(t)=>{
+  const {worker}=fixture(t);let checks=0;
+  worker.api=async()=>{checks++;return {result:{messages:[]}};};
+  worker.configure({autoReply:true,valleyOnly:true,valleyWindows:[],weekendWindows:[],holidayWindows:[]});
+  await worker.run("reply"); assert.equal(checks,1);
+  worker.configure({replyFollowSchedule:true});
+  await worker.run("reply"); assert.equal(checks,1);
+});
+
+test("reply polling backs off, persists auth pause, and resumes with new credentials",async(t)=>{
+  const {worker,account,directory,advance}=fixture(t);let calls=0;
+  worker.api=async()=>{calls++;throw Object.assign(new Error("limited"),{kind:"rate_limit"});};
+  worker.configure({autoReply:true,replyIntervalSeconds:30});
+  await worker.tick(); assert.equal(worker.status().nextReplyAt,worker.now()+60000);
+  advance(60000);
+  worker.api=async()=>{calls++;throw Object.assign(new Error("login"),{kind:"authentication"});};
+  await worker.tick(); assert.match(worker.status().replyPaused,/登录/);
+  const next=new Automation({directory,account:()=>account,api:worker.api,now:worker.now});
+  advance(3600000);await next.tick();assert.equal(calls,2);
+  account.identity="new-test-session";
+  next.api=async()=>{calls++;return {result:{messages:[]}};};
+  await next.tick();assert.equal(calls,3);assert.equal(next.status().replyPaused,"");assert.equal(next.status().replyFailures,0);
+});
+
+function replyFixture(t, overrides = {}) {
+  const f=fixture(t, overrides);const read=f.worker.api;
+  f.worker.api=async(...args)=>{
+    if(args[1].endsWith('/message')) return {result:{messages:[{comment_a_id:91,root_comment_id:90,linkid:1,is_unread:1}]}};
+    if(args[1].endsWith('/tree')) return {result:{link:{linkid:1,title:"讨论"},comments:[{comment:[
+      {commentid:90,user:{userid:7},text:"我的评论"},
+      {commentid:91,reply_id:90,user:{userid:8},text:"请问怎么操作？"},
+    ]}]}};
+    return read(...args);
+  };
+  return f;
+}
+
+test("reply send deduplication and baseline survive restart",async(t)=>{
+  const {worker,sent,directory,account,advance}=replyFixture(t);
+  worker.configure({autoReply:true}); await worker.tick();assert.equal(sent.length,1);
+  const baseline=worker.data.accounts[7].replyPoll.baselineAt;
+  advance(180000);
+  const next=new Automation({directory,account:()=>account,api:worker.api,now:worker.now,generate:worker.generate,wait:worker.wait});
+  await next.tick();assert.equal(sent.length,1);assert.equal(next.data.accounts[7].replyPoll.baselineAt,baseline);
+  account.id="9";account.identity="other-account";await next.tick();assert.equal(sent.length,1);
+  assert.notEqual(next.data.accounts[9].replyPoll.baselineAt,baseline);
+});
+
+test("stopping all tasks during reply generation cancels sending and prevents overlap",async(t)=>{
+  let release,started;const ready=new Promise(r=>{started=r;});
+  const {worker,sent}=replyFixture(t,{generate:async()=>{started();return new Promise(r=>{release=r;});}});
+  worker.configure({autoReply:true,enabled:true});
+  const pending=worker.run("reply");await ready;
+  assert.throws(()=>worker.run(),/正在运行/);
+  worker.configure({enabled:false,autoReply:false});release({action:"send",text:"回复"});await pending;
+  assert.equal(sent.length,0);assert.equal(worker.status().nextReplyAt,null);assert.equal(worker.status().nextRunAt,null);
+});
+
+test("unknown reply receipt never retries; captcha on send pauses polling",async(t)=>{
+  for(const kind of ["network","captcha"]) {
+    const {worker,sent}=replyFixture(t);const read=worker.api;let attempts=0;
+    worker.api=async(...args)=>{if(args[3]==="POST"){attempts++;throw Object.assign(new Error("failed"),{kind});}return read(...args);};
+    worker.configure({autoReply:true});await worker.run("reply");
+    assert.equal(sent.length,0);assert.equal(worker.status().usage.reply,1);
+    if(kind==="captcha") assert.match(worker.status().replyPaused,/验证/);
+    else {await worker.run("reply");assert.equal(attempts,1);}
+  }
 });

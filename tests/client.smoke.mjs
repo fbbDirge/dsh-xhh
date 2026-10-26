@@ -104,10 +104,12 @@ try {
   button(tree, "浏览").props.onClick();
   tree = page.render();
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, false);
-  control(tree, "定时浏览总开关").props.onChange({ target: { checked: true } });
+  control(tree, "定时浏览开关").props.onChange({ target: { checked: true } });
   tree = page.render();
   control(tree, "每轮最多浏览帖子数").props.onChange({ target: { value: "3" } });
   button(page.render(), "互动").props.onClick();
+  control(page.render(), "回复检查间隔（秒）").props.onChange({ target: { value: "45" } });
+  control(page.render(), "回复跟随浏览运行时段").props.onChange({ target: { checked: true } });
   control(page.render(), "回复人格").props.onChange({ target: { value: "认真倾听\n简洁回答" } });
   control(page.render(), "评论提及对象").props.onChange({ target: { value: "custom" } });
   control(page.render(), "自定义提及昵称").props.onChange({ target: { value: "@指定用户" } });
@@ -123,6 +125,8 @@ try {
   await all(page.render()).find((n) => n.type === "form").props.onSubmit({ preventDefault() {} });
   assert.equal(server.config.enabled, true);
   assert.equal(server.config.postsPerRound, 3);
+  assert.equal(server.config.replyIntervalSeconds, 45);
+  assert.equal(server.config.replyFollowSchedule, true);
   assert.equal(server.config.replyPersona, "认真倾听\n简洁回答");
   assert.equal(server.config.mentionName, "@指定用户");
   assert.equal(server.config.mentionUserId, "12345678");
@@ -169,8 +173,8 @@ try {
   failSave = false;
   await button(page.render(), "立即执行一轮").props.onClick();
   assert.equal(button(page.render(), "保存设置").props.disabled, true);
-  await button(page.render(), "停止任务").props.onClick();
-  assert.deepEqual(requests.filter((r) => r.body?.action === "configure").at(-1).body.config, { enabled: false });
+  await button(page.render(), "停止全部任务").props.onClick();
+  assert.deepEqual(requests.filter((r) => r.body?.action === "configure").at(-1).body.config, { enabled: false, autoReply: false });
 
   control(page.render(), "Cookie").props.onChange({ target: { value: "heybox_id=123; user_pkey=secret" } });
   await button(page.render(), "保存账号").props.onClick();
