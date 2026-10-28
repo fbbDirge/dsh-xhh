@@ -361,6 +361,7 @@ test("stopping all tasks during reply generation cancels sending and prevents ov
   assert.throws(()=>worker.run(),/正在运行/);
   worker.configure({enabled:false,autoReply:false});release({action:"send",text:"回复"});await pending;
   assert.equal(sent.length,0);assert.equal(worker.status().nextReplyAt,null);assert.equal(worker.status().nextRunAt,null);
+  assert.equal(worker.status().replyQueue.length,1,"stopping retains unsent candidate");
 });
 
 test("unknown reply receipt never retries; captcha on send pauses polling",async(t)=>{
@@ -374,7 +375,7 @@ test("unknown reply receipt never retries; captcha on send pauses polling",async
   }
 });
 
-test("platform rejection details persist for comments and replies without retrying", async(t)=>{
+test("platform rejection diagnostics persist; only queued replies retry", async(t)=>{
   for (const kind of ["comment","reply"]) {
     const {worker,directory,account}=replyFixture(t);const read=worker.api;let attempts=0;
     worker.api=async(...args)=>{
@@ -387,12 +388,12 @@ test("platform rejection details persist for comments and replies without retryi
     assert.equal(record.status,"rejected");assert.equal(record.platformMessage,"缺失参数");
     assert.equal(record.platformStatus,"failed");assert.equal(record.httpStatus,200);
     assert.match(worker.status().history.find(v=>v.type==="rejected").message,/缺失参数/);
-    const next=new Automation({directory,account:()=>account,api:worker.api,generate:worker.generate,now:worker.now});
+    const next=new Automation({directory,account:()=>account,api:worker.api,generate:worker.generate,now:worker.now,wait:worker.wait});
     assert.equal(next.status().interactions[0].platformMessage,"缺失参数");
     await next.run(kind==="reply"?"reply":"browse");
     // The browser may process a different post; the rejected action itself stays unchanged.
     assert.equal(next.data.accounts[7].actions[kind==="reply"?"reply:91":"post:1"].status,"rejected");
-    if(kind==="reply") assert.equal(attempts,1);
+    if(kind==="reply") { assert.equal(attempts,2); assert.equal(next.status().replyQueue.length,1); }
   }
 });
 
@@ -406,4 +407,125 @@ test("diagnostics remove account and model secrets before saving",async(t)=>{
   await worker.run();
   const data=fs.readFileSync(worker.file,"utf8");
   for(const secret of [account.cookie,"fixture-model-private","fixture-pkey"]) assert.ok(!data.includes(secret));
+});
+
+test("ten replies drain in batches of five across restart after messages disappear",async(t)=>{
+  const {worker,sent,directory,account}=replyFixture(t);const read=worker.api;
+  let messages=Array.from({length:10},(_,i)=>({comment_a_id:91+i,root_comment_id:90,linkid:1,is_unread:1}));
+  worker.api=async(...args)=>{
+    if(args[1].endsWith('/message')) return {result:{messages}};
+    if(args[1].endsWith('/tree')) return {result:{link:{linkid:1,title:"讨论"},comments:[{comment:[
+      {commentid:90,user:{userid:7}},...Array.from({length:10},(_,i)=>({commentid:91+i,reply_id:90,user:{userid:8},text:"问题"})),
+    ]}]}};
+    return read(...args);
+  };
+  worker.configure({autoReply:true,repliesPerRound:5,dailyReplies:10});await worker.run("reply");
+  assert.equal(sent.length,5);assert.equal(worker.status().replyQueue.length,5);
+  messages=[];
+  const next=new Automation({directory,account:()=>account,api:worker.api,generate:worker.generate,now:worker.now,wait:worker.wait});
+  assert.equal(next.status().replyQueue.length,5);await next.run("reply");
+  assert.equal(sent.length,10);assert.equal(new Set(sent.map(v=>v.reply_id)).size,10);
+  assert.equal(next.status().replyQueue.length,0);
+});
+
+test("generation failure is persisted and retried even when message discovery fails",async(t)=>{
+  const {worker,sent,directory,account}=replyFixture(t);const read=worker.api;
+  worker.configure({autoReply:true,apiKey:"queue-private-model"});
+  worker.generate=async()=>{throw new Error("model failed queue-private-model "+account.cookie);};
+  await worker.run("reply");
+  assert.equal(sent.length,0);assert.equal(worker.status().replyQueue[0].attempts,1);
+  const saved=fs.readFileSync(worker.file,"utf8");
+  assert.ok(!saved.includes("queue-private-model"));assert.ok(!saved.includes(account.cookie));
+  const next=new Automation({directory,account:()=>account,api:async(...args)=>{
+    if(args[1].endsWith('/message')) throw new Error("temporary network error");
+    return read(...args);
+  },generate:async()=>({action:"send",text:"重试成功"}),now:worker.now,wait:worker.wait});
+  await next.run("reply");assert.equal(sent.length,1);assert.equal(next.status().replyQueue.length,0);
+  assert.equal(next.status().replyFailures,1);
+});
+
+test("explicit rejection retries successfully and each send attempt consumes quota",async(t)=>{
+  const {worker,sent}=replyFixture(t);const read=worker.api;let attempts=0;
+  worker.api=async(...args)=>{
+    if(args[3]==="POST" && ++attempts===1) throw Object.assign(new Error("rejected"),{definitive:true,platformMessage:"稍后再试"});
+    return read(...args);
+  };
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.equal(worker.status().replyQueue[0].state,"pending");
+  await worker.run("reply");assert.equal(sent.length,1);assert.equal(attempts,2);
+  assert.equal(worker.status().usage.reply,2);assert.equal(worker.status().replyQueue.length,0);
+});
+
+test("daily quota keeps pending replies until the next day",async(t)=>{
+  const {worker,sent,advance}=replyFixture(t);const read=worker.api;let attempts=0;
+  worker.api=async(...args)=>{
+    if(args[3]==="POST" && ++attempts===1) throw Object.assign(new Error("rejected"),{definitive:true});
+    return read(...args);
+  };
+  worker.configure({autoReply:true,dailyReplies:1});await worker.run("reply");
+  await worker.run("reply");assert.equal(attempts,1);assert.equal(worker.status().replyQueue.length,1);
+  advance(86400000);await worker.run("reply");assert.equal(sent.length,1);assert.equal(worker.status().replyQueue.length,0);
+});
+
+test("unknown send remains queued for confirmation without retry after restart",async(t)=>{
+  const {worker,directory,account}=replyFixture(t);const read=worker.api;let attempts=0;
+  worker.api=async(...args)=>{if(args[3]==="POST"){attempts++;throw new Error("timeout");}return read(...args);};
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.equal(worker.status().replyQueue[0].state,"uncertain");
+  const next=new Automation({directory,account:()=>account,api:worker.api,now:worker.now,wait:worker.wait});
+  await next.run("reply");assert.equal(attempts,1);assert.equal(next.status().replyQueue[0].state,"uncertain");
+  account.id="9";account.identity="other-session";assert.equal(next.status().replyQueue.length,0);
+});
+
+test("model skip finishes queue entry; old rejected records are not retroactively retried",async(t)=>{
+  const {worker,sent}=replyFixture(t,{generate:async()=>({action:"skip"})});
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.equal(worker.status().replyQueue.length,0);assert.equal(worker.data.accounts[7].actions["reply:91"].status,"skipped");
+  worker.data.accounts[7].actions["reply:91"].status="rejected";worker.save();
+  worker.generate=async()=>({action:"send",text:"回复"});await worker.run("reply");assert.equal(sent.length,0);
+});
+
+test("a failing candidate does not starve later replies",async(t)=>{
+  const {worker,sent}=replyFixture(t);const read=worker.api;
+  worker.api=async(...args)=>{
+    if(args[1].endsWith('/message')) return {result:{messages:[91,92].map(v=>({comment_a_id:v,root_comment_id:90,linkid:1,is_unread:1}))}};
+    if(args[1].endsWith('/tree')) {const tree=await read(...args);tree.result.comments[0].comment.push({commentid:92,reply_id:90,user:{userid:8},text:"可以回答"});return tree;}
+    return read(...args);
+  };
+  worker.generate=async(input)=>{if(input.incoming.includes("请问")) throw new Error("model error");return {action:"send",text:"回答"};};
+  worker.configure({autoReply:true,repliesPerRound:1});await worker.run("reply");
+  assert.equal(sent.length,0);await worker.run("reply");assert.equal(sent[0].reply_id,"92");
+  assert.equal(worker.status().replyQueue.length,1);
+});
+
+test("all discovered message pages are queued before processing a small batch",async(t)=>{
+  const {worker}=replyFixture(t);const read=worker.api;const offsets=[];
+  const messages=Array.from({length:25},(_,i)=>({comment_a_id:91+i,root_comment_id:90,linkid:1,is_unread:1}));
+  worker.api=async(...args)=>{
+    if(args[1].endsWith('/message')) {offsets.push(+args[2].offset);return {result:{messages:messages.slice(+args[2].offset,+args[2].offset+20)}};}
+    return read(...args);
+  };
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.deepEqual(offsets,[0,20]);assert.equal(worker.status().replyQueue.length,24);
+});
+
+test("temporarily incomplete comment tree retries instead of losing the queued reply",async(t)=>{
+  const {worker,sent}=replyFixture(t);const read=worker.api;let missing=true;
+  worker.api=async(...args)=>{
+    if(missing && args[1].endsWith('/tree')) return {result:{link:{linkid:1},comments:[]}};
+    return read(...args);
+  };
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.equal(sent.length,0);assert.match(worker.status().replyQueue[0].error,/评论关系/);
+  missing=false;await worker.run("reply");assert.equal(sent.length,1);assert.equal(worker.status().replyQueue.length,0);
+});
+
+test("failure to save queued send intent prevents the network send",async(t)=>{
+  const {worker,sent}=replyFixture(t);
+  worker.configure({autoReply:true});const save=worker.save.bind(worker);
+  worker.save=()=>{
+    if(worker.data.accounts[7]?.actions['reply:91']?.status==='unknown') throw Object.assign(new Error("disk full"),{persistence:true});
+    save();
+  };
+  await worker.run("reply");assert.equal(sent.length,0);assert.match(worker.fault,/保存/);
 });
