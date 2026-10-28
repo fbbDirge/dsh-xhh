@@ -185,7 +185,7 @@ try {
   dependencies = { ...dependencies, installing: false, qrReady: true, logs: ["依赖安装完成"] };
   server.interactions = [
     { at: Date.now(), kind: "comment", status: "sent", postId: "1", text: '<a data-user-id="8">@作者</a> 测试评论正文', displayText: "@作者 测试评论正文" },
-    { at: Date.now(), kind: "reply", status: "unknown", postId: "2", text: "测试回复正文", incoming: "对方的问题" },
+    { at: Date.now(), kind: "reply", status: "rejected", platformStatus: "failed", platformMessage: "缺失参数 <script>test</script>", httpStatus: 200, postId: "2", text: "测试回复正文", incoming: "对方的问题" },
   ];
   await poll();
   button(page.render(), "评论记录").props.onClick();
@@ -194,6 +194,8 @@ try {
   button(page.render(), "评论回复").props.onClick();
   assert.ok(text(page.render()).includes("测试回复正文"));
   assert.ok(text(page.render()).includes("对方的问题"));
+  assert.ok(text(page.render()).includes("缺失参数 <script>test</script>"));
+  assert.ok(text(page.render()).includes("HTTP 200"));
   assert.ok(!text(page.render()).includes("@作者 测试评论正文"));
   page.unmount();
   assert.equal(timers.size, 0, "poll timer cleaned up");

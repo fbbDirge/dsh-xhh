@@ -373,3 +373,37 @@ test("unknown reply receipt never retries; captcha on send pauses polling",async
     else {await worker.run("reply");assert.equal(attempts,1);}
   }
 });
+
+test("platform rejection details persist for comments and replies without retrying", async(t)=>{
+  for (const kind of ["comment","reply"]) {
+    const {worker,directory,account}=replyFixture(t);const read=worker.api;let attempts=0;
+    worker.api=async(...args)=>{
+      if(args[3]==="POST") {attempts++;throw Object.assign(new Error("rejected"),{definitive:true,httpStatus:200,platformStatus:"failed",platformMessage:"缺失参数"});}
+      return read(...args);
+    };
+    worker.configure(kind==="reply" ? {autoReply:true} : {enabled:true,autoComment:true,mentionAuthor:false});
+    await worker.run(kind==="reply"?"reply":"browse");
+    let record=worker.status().interactions[0];
+    assert.equal(record.status,"rejected");assert.equal(record.platformMessage,"缺失参数");
+    assert.equal(record.platformStatus,"failed");assert.equal(record.httpStatus,200);
+    assert.match(worker.status().history.find(v=>v.type==="rejected").message,/缺失参数/);
+    const next=new Automation({directory,account:()=>account,api:worker.api,generate:worker.generate,now:worker.now});
+    assert.equal(next.status().interactions[0].platformMessage,"缺失参数");
+    await next.run(kind==="reply"?"reply":"browse");
+    // The browser may process a different post; the rejected action itself stays unchanged.
+    assert.equal(next.data.accounts[7].actions[kind==="reply"?"reply:91":"post:1"].status,"rejected");
+    if(kind==="reply") assert.equal(attempts,1);
+  }
+});
+
+test("diagnostics remove account and model secrets before saving",async(t)=>{
+  const {worker,account}=fixture(t);const read=worker.api;
+  worker.configure({enabled:true,autoComment:true,apiKey:"fixture-model-private"});
+  worker.api=async(...args)=>{
+    if(args[3]==="POST") throw Object.assign(new Error("failed"),{definitive:true,platformStatus:"failed",platformMessage:`${account.cookie} fixture-model-private user_pkey=fixture-pkey`});
+    return read(...args);
+  };
+  await worker.run();
+  const data=fs.readFileSync(worker.file,"utf8");
+  for(const secret of [account.cookie,"fixture-model-private","fixture-pkey"]) assert.ok(!data.includes(secret));
+});

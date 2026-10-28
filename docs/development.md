@@ -2,6 +2,12 @@
 
 日期：2026-10-24。
 
+## v0.10.5 评论创建参数修复
+
+- 根据 [Issue #1](https://github.com/fbbDirge/dsh-xiaoheihe/issues/1) 及 [better-XiaoHeiHe 的请求构造](https://github.com/k1m0206/better-XiaoHeiHe/blob/main/src/content/api-signing.js) / [附加签名](https://github.com/k1m0206/better-XiaoHeiHe/blob/main/src/shared/workshop-signing.js)，仅为 comment/create 构造新版网页参数和 HMAC-SHA256 _rnd，保留原有 hkey；不携带 heybox_id / device_info / device_id。
+- 失败响应保留经敏感信息过滤和长度限制的 HTTP 状态、status 和 msg，写入账号动作记录、事件日志，并通过设置页文本节点展示；不保存原始响应或凭据。
+- 离线测试覆盖真实 requestHeybox 调用链：主评论 / 回复、参数白名单、每次生成签名、正文编码、完整回执、读取接口不变、业务失败原因、凭据过滤、无自动重试及重启持久化。尚未进行维护者真实账号发送验收。
+
 ## v0.10.2 用户 ID 提及标记
 
 - 用户提供官方 App 输入 @ 并选择用户后的网页显示标记：`data-user-id="12345678"` 的链接，href 携带编码后的 `{"protocol_type":"openUser","user_id":"12345678"}`。这是显示结果样本，不是创建评论请求抓包。

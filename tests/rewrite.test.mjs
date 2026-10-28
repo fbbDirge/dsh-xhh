@@ -87,3 +87,64 @@ try {
     await assert.rejects(requestHeybox({cookie:"test-only",deviceId:"test"}, "/bbs/app/user/message"), (error) => error.kind === kind);
   }
 } finally { globalThis.fetch = originalFetch; }
+
+// Exercise the actual request builder with an offline fetch stub for both write modes.
+const { createHmac } = await import("node:crypto");
+const { platformText } = await import("../lib/platform-error.js");
+const writeCalls = [];
+try {
+  globalThis.fetch = async (url, options) => {
+    writeCalls.push({url:new URL(url),options});
+    return new Response(JSON.stringify({status:"ok",commentid:12345,result:{}}), {status:200});
+  };
+  const state = {cookie:"heybox_id=42; user_pkey=fixture-private-cookie",heyboxId:"42",deviceId:"fixture-device"};
+  for (const ids of [{reply_id:"-1",root_id:"-1"},{reply_id:"1002",root_id:"1001"}]) {
+    const form = {is_cy:"0",link_id:"1000",...ids,text:'<a data-user-id="8">@示例</a> & + %\n第二行'};
+    const result = await requestHeybox(state,"/bbs/app/comment/create",{heybox_id:"must-not-leak",_rnd:"must-not-override"},"POST",form);
+    assert.equal(result.commentid,12345);
+    const {url,options} = writeCalls.at(-1);
+    assert.equal(url.origin,"https://api.xiaoheihe.cn");
+    assert.equal(url.pathname,"/bbs/app/comment/create");
+    const {hkey,_time,nonce,_rnd,...base} = Object.fromEntries(url.searchParams);
+    assert.deepEqual(base, {app:"heybox",os_type:"web",x_app:"heybox_website",x_client_type:"web",x_os_type:"Windows",x_client_version:"",client_type:"web",web_version:"3.0",version:"999.0.4"});
+    assert.equal(hkey,ov(url.pathname,Number(_time),nonce));
+    assert.match(nonce,/^[A-F0-9]{32}$/);
+    assert.ok(Math.abs(Number(_time)-Math.floor(Date.now()/1000))<5);
+    const key="Z7mFG4tQp9Ws2LxB8H"; // gitleaks:allow -- public protocol test vector, not account credentials
+    assert.equal(_rnd,"15:"+createHmac("sha256",key).update(`${key}${nonce}${_time}:${nonce}`).digest("hex"));
+    assert.equal(options.method,"POST");
+    assert.equal(options.redirect,"error");
+    assert.equal(options.headers.Cookie,state.cookie);
+    assert.equal(options.headers["Content-Type"],"application/x-www-form-urlencoded;charset=utf-8");
+    assert.deepEqual(Object.fromEntries(new URLSearchParams(options.body)),form);
+  }
+  assert.notEqual(writeCalls[0].url.searchParams.get("nonce"),writeCalls[1].url.searchParams.get("nonce"));
+  assert.notEqual(writeCalls[0].url.searchParams.get("_rnd"),writeCalls[1].url.searchParams.get("_rnd"));
+  await requestHeybox(state,"/bbs/app/feeds",{offset:"20"});
+  const readParams=writeCalls.at(-1).url.searchParams;
+  assert.equal(readParams.get("web_version"),"2.5");
+  assert.equal(readParams.get("heybox_id"),"42");
+  assert.equal(readParams.get("device_id"),state.deviceId);
+  assert.equal(readParams.get("offset"),"20");
+  assert.equal(readParams.has("_rnd"),false);
+
+  globalThis.fetch=async()=>new Response(JSON.stringify({status:"failed",msg:"缺失参数",result:{}}),{status:200});
+  await assert.rejects(requestHeybox(state,"/bbs/app/comment/create",{},"POST",{}),(error)=>{
+    assert.equal(error.definitive,true);assert.equal(error.httpStatus,200);
+    assert.equal(error.platformStatus,"failed");assert.equal(error.platformMessage,"缺失参数");
+    assert.match(error.message,/缺失参数/);return true;
+  });
+  globalThis.fetch=async()=>new Response(JSON.stringify({status:"failed",msg:'fixture-private-cookie\nAuthorization: Bearer fixture-auth'}),{status:200});
+  await assert.rejects(requestHeybox(state,"/bbs/app/comment/create",{},"POST",{}),(error)=>{
+    assert.ok(!JSON.stringify(error).includes("fixture-private-cookie"));
+    assert.ok(!error.message.includes("fixture-auth"));return true;
+  });
+  let attempts=0;
+  globalThis.fetch=async()=>{attempts++;throw new Error("timeout");};
+  await assert.rejects(requestHeybox(state,"/bbs/app/comment/create",{},"POST",{}),/timeout/);
+  assert.equal(attempts,1);
+} finally { globalThis.fetch=originalFetch; }
+assert.equal(platformText("缺失参数\n请检查"),"缺失参数 请检查");
+assert.equal(platformText("x".repeat(1000)).length,300);
+assert.ok(!platformText("api_key=fixture-key; user_pkey=fixture-pkey").includes("fixture-"));
+console.log("comment/reply web signing, platform diagnostics and no-retry tests passed");
