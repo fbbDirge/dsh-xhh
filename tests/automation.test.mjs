@@ -88,15 +88,32 @@ test("legacy nickname-only configs stay readable but never send an unbound menti
   worker.configure({ enabled:true, autoComment:true, mentionTarget:"custom", mentionName:"旧昵称" });
   const config = JSON.parse(fs.readFileSync(worker.configFile, "utf8"));
   delete config.mentionUserId;
+  delete config.mentionPlainTextFallback;
   fs.writeFileSync(worker.configFile, JSON.stringify(config));
   worker.reload();
   assert.equal(worker.status().config.mentionName, "旧昵称");
   assert.equal(worker.status().config.mentionUserId, "");
+  assert.equal(worker.status().config.mentionPlainTextFallback, false);
   assert.throws(() => commentText(worker.status().config, null, "正文"), /缺少用户 ID/);
   await worker.run();
   assert.equal(sent.length, 0);
   assert.equal(worker.status().usage.comment, 0);
   assert.ok(worker.status().history.some((v) => v.message.includes("缺少用户 ID")));
+});
+test("nickname-only mention fallback is opt-in, persists, and never replaces a bound mention",async(t)=>{
+  assert.throws(()=>validateConfig({mentionPlainTextFallback:"true"}));
+  const {worker,sent,directory}=fixture(t);
+  worker.configure({enabled:true,autoComment:true,mentionTarget:"custom",mentionName:" @示例用户 ",mentionPlainTextFallback:true});
+  await worker.run();
+  assert.equal(sent.length,1);assert.equal(sent[0].text,"@示例用户 这个关卡设计挺有意思。");
+  assert.equal(worker.status().interactions[0].displayText,sent[0].text);
+  const next=new Automation({directory,account:worker.account,api:worker.api,generate:worker.generate,now:worker.now,wait:worker.wait});
+  assert.equal(next.status().config.mentionPlainTextFallback,true);
+  assert.ok(commentText({...next.status().config,mentionUserId:"12345678"},null,"正文").startsWith('<a data-user-id="12345678"'));
+  assert.equal(commentText({...next.status().config,mentionAuthor:false},null,"正文"),"正文");
+  assert.equal(commentText({...next.status().config,mentionTarget:"none"},null,"正文"),"正文");
+  next.configure({mentionName:"示例用户",mentionUserId:"",mentionPlainTextFallback:false});
+  assert.throws(()=>commentText(next.status().config,null,"正文"),/缺少用户 ID/);
 });
 test("separate editable config preserves history and redacts keys", async (t) => {
   const { worker, directory } = fixture(t);
