@@ -23,6 +23,10 @@ function fixture(t, overrides = {}) {
 }
 
 test("configuration rejects coercion, unknown fields and invalid windows",()=>{
+  for(const key of ["dailyComments","dailyReplies"]) {
+    for(const value of [0,101,9999]) assert.equal(validateConfig({[key]:value})[key],value);
+    for(const value of [-1,10000,1.5,"9999",null]) assert.throws(()=>validateConfig({[key]:value}));
+  }
   for(const patch of [{enabled:"true"},{postsPerRound:0},{cooldownSeconds:0},{force:true},{intervalMinutes:1.5},{valleyWindows:[[900,900]]},{timeZone:"bad"}]) assert.throws(()=>validateConfig(patch));
   assert.equal(validateConfig({postsPerRound:3}).postsPerRound,3);
   assert.equal(validateConfig({ replyPersona: "理性讨论\n不编造经历" }).replyPersona, "理性讨论\n不编造经历");

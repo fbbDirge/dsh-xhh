@@ -2,7 +2,11 @@
 
 基于 DeepSeek Harness 的小黑盒后台浏览与互动插件。界面参考 [dsh-bili-scroll](https://github.com/c1overzz/dsh-bili-scroll)：在 DSH **设置 → 刷小黑盒** 配置任务，在会话的 **刷过的帖子** 标签查看最近浏览记录。不使用侧栏、悬浮胶囊或遮罩面板。
 
-当前版本：0.10.8。需求分析见 [自动化设计](docs/automation-design.md)，实现和联调结果见 [开发记录](docs/development.md)。双插件历史与升级见 [历史隔离](docs/history-and-upgrades.md)，官方发现机制见 [插件发布](docs/plugin-discovery.md)。
+当前版本：0.10.9。需求分析见 [自动化设计](docs/automation-design.md)，实现和联调结果见 [开发记录](docs/development.md)。双插件历史与升级见 [历史隔离](docs/history-and-upgrades.md)，官方发现机制见 [插件发布](docs/plugin-discovery.md)。
+
+## 0.10.9 每日额度上限
+
+每日评论与每日回复额度均支持 0–9999，默认仍各为 10，升级保留已设额度。额度按发送尝试统计，仍遵守发送冷却、调度与平台限制。
 
 ## 0.10.8 深层评论查找修复
 

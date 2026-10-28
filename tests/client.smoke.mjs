@@ -114,6 +114,8 @@ try {
   control(page.render(), "评论提及对象").props.onChange({ target: { value: "custom" } });
   control(page.render(), "自定义提及昵称").props.onChange({ target: { value: "@指定用户" } });
   control(page.render(), "提及用户 ID").props.onChange({ target: { value: "12345678" } });
+  assert.equal(control(page.render(), "每日评论额度").props.max, 9999);
+  assert.equal(control(page.render(), "每日回复额度").props.max, 9999);
   control(page.render(), "缺少 ID 时允许纯文本 @").props.onChange({ target: { checked: true } });
   button(page.render(), "高级").props.onClick();
   control(page.render(), "生成方式").props.onChange({ target: { value: "external" } });
