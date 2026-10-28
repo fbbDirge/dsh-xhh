@@ -546,3 +546,32 @@ test("failure to save queued send intent prevents the network send",async(t)=>{
   };
   await worker.run("reply");assert.equal(sent.length,0);assert.match(worker.fault,/保存/);
 });
+
+test("reply lookup resumes beyond five subcomment pages after restart",async(t)=>{
+  const {worker,sent,directory,account}=replyFixture(t);const read=worker.api;const cursors=[];
+  worker.api=async(...args)=>{
+    if(args[1].endsWith('/tree')) return {result:{link:{linkid:1,title:"讨论"},comments:[{comment:[{commentid:90,user:{userid:7},text:"我的评论"}]}]}};
+    if(args[1].endsWith('/sub/comments')) {
+      const cursor=+(args[2].lastval||0);cursors.push(cursor);
+      if(cursor===500) return {result:{comments:[{commentid:91,replyid:90,user:{userid:8},replyuser:{userid:7},text:"问题"}],has_more:false,lastval:91}};
+      return {result:{comments:[{commentid:cursor+100,user:{userid:9},text:"其他评论"}],has_more:true,lastval:cursor+100}};
+    }
+    return read(...args);
+  };
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.equal(sent.length,0);assert.equal(worker.data.accounts[7].replyQueue[91].scanCursor,"500");
+  const next=new Automation({directory,account:()=>account,api:worker.api,generate:worker.generate,now:worker.now,wait:worker.wait});
+  await next.run("reply");assert.deepEqual(cursors,[0,100,200,300,400,500]);
+  assert.equal(sent.length,1);assert.equal(sent[0].reply_id,"91");assert.equal(next.status().replyQueue.length,0);
+});
+
+test("exhausted subcomment scan resets cursor to discover later additions",async(t)=>{
+  const {worker}=replyFixture(t);const read=worker.api;
+  worker.api=async(...args)=>{
+    if(args[1].endsWith('/tree')) return {result:{link:{linkid:1},comments:[]}};
+    if(args[1].endsWith('/sub/comments')) return {result:{comments:[{commentid:100,user:{userid:8}}],has_more:false,lastval:100}};
+    return read(...args);
+  };
+  worker.configure({autoReply:true});await worker.run("reply");
+  assert.equal(worker.status().replyQueue.length,1);assert.equal(worker.data.accounts[7].replyQueue[91].scanCursor,undefined);
+});
