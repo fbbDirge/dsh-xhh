@@ -124,6 +124,17 @@ try {
   assert.deepEqual(server.config.postingHashtags, [{ name: "关卡设计", isActivity: false }]);
   assert.equal(server.config.postingPrompt, "讨论关卡设计");
   assert.deepEqual(server.config.postingWeekdays, [1, 2, 3, 4, 5, 6]);
+  control(page.render(), "发帖时间方式").props.onChange({ target: { value: "prompt" } });
+  assert.equal(all(page.render()).some(n => n.props["aria-label"] === "每天发布时间"), false);
+  control(page.render(), "发帖时间提示词").props.onChange({ target: { value: "每天午休或晚间随机发 1–2 条" } });
+  control(page.render(), "每日最多安排帖子").props.onChange({ target: { value: "2" } });
+  control(page.render(), "计划最短间隔（分钟）").props.onChange({ target: { value: "120" } });
+  assert.ok(text(page.render()).includes("时间规划记录"));
+  await all(page.render()).find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.equal(server.config.postingTimingMode, "prompt");
+  assert.equal(server.config.postingTimingPrompt, "每天午休或晚间随机发 1–2 条");
+  assert.equal(server.config.postingDailyLimit, 2);
+  assert.equal(server.config.postingMinGapMinutes, 120);
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, true);
   button(tree, "浏览").props.onClick();
   tree = page.render();

@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { Automation, defaults, validateConfig } from "../lib/automation.js";
-import { nextPostingAt, localEpoch, parsePostDecision } from "../lib/posting.js";
+import { nextPostingAt, localEpoch, parsePostDecision, parsePostingPlan } from "../lib/posting.js";
 import { decisionMessages, generateDecision } from "../lib/generator.js";
 
 const at = s => Date.parse(s + "+08:00");
@@ -207,4 +207,152 @@ test("legacy pending jobs without selections continue with their original commun
   f.worker.save(); await f.create().tick();
   assert.equal(f.sent[0].form.topic_ids, "123");
   assert.deepEqual(JSON.parse(f.sent[0].form.hashtags), []);
+});
+
+
+function promptFixture(t, options = {}) {
+  return fixture(t, { generate: async input => input.kind === "post-plan" ? { times: ["20:05", "21:15"] } : { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" }, ...options });
+}
+const promptConfig = { postingTimingMode: "prompt", postingDailyLimit: 2, postingMinGapMinutes: 60 };
+
+test("prompt timing validates hard limits, JSON schedule and optional empty day", () => {
+  for (const patch of [{ postingTimingMode: "other" }, { postingDailyLimit: 0 }, { postingDailyLimit: 11 }, { postingMinGapMinutes: 9 }, { postingMinGapMinutes: 1441 }, { postingTimingPrompt: 1 }]) assert.throws(() => validateConfig(patch));
+  assert.throws(() => validateConfig({ ...promptConfig, postingEnabled: true, postingTopicId: "7", postingTimingPrompt: " " }));
+  assert.deepEqual(parsePostingPlan('{"times":["21:00","12:00"]}'), { times: ["12:00", "21:00"] });
+  assert.deepEqual(parsePostingPlan('{"times":[]}'), { times: [] });
+  for (const plan of [{ times: ["25:00"] }, { times: ["20:00", "20:00"] }, { times: ["tomorrow"] }, { action: "send" }]) assert.throws(() => parsePostingPlan(JSON.stringify(plan)));
+});
+
+test("prompt mode plans once, persists across restart, sends each scheduled post once", async t => {
+  const f = promptFixture(t); f.enable(promptConfig);
+  await f.worker.tick();
+  assert.equal(f.inputs[0].input.kind, "post-plan");
+  assert.equal(f.inputs[0].input.timeZone, "Asia/Shanghai");
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.worker.status().posting.nextAt, at("2026-10-29T20:05:00"));
+  await f.create().tick(); assert.equal(f.inputs.length, 1);
+  f.setTime(at("2026-10-29T20:05:00")); await f.create().tick();
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.create().status().posting.nextAt, at("2026-10-29T21:15:00"));
+  f.setTime(at("2026-10-29T21:15:00")); await f.create().tick(); await f.create().tick();
+  assert.equal(f.sent.length, 2); assert.equal(f.inputs.length, 3);
+  assert.equal(f.create().status().posting.nextAt, null);
+});
+
+test("day rollover creates a new plan with previous dates, downtime never bursts yesterday", async t => {
+  const f = promptFixture(t); f.enable(promptConfig); await f.worker.tick();
+  f.setTime(at("2026-10-30T10:00:00")); await f.create().tick();
+  assert.equal(f.sent.length, 0); assert.equal(f.inputs.length, 2);
+  assert.equal(f.inputs[1].input.date, "2026-10-30");
+  assert.deepEqual(f.inputs[1].input.previousPlans, [{ date: "2026-10-29", times: ["20:05", "21:15"] }]);
+  assert.equal(f.create().status().posting.plans.length, 2);
+});
+
+test("empty plan does not repeatedly call model on the same day", async t => {
+  const f = promptFixture(t, { generate: async () => ({ times: [] }) });
+  f.enable(promptConfig); await f.worker.tick(); await f.create().tick();
+  assert.equal(f.inputs.length, 1); assert.equal(f.sent.length, 0);
+  assert.equal(f.create().status().posting.plans[0].status, "skipped");
+});
+
+test("past, excessive, overly close and nonexistent times fail closed with bounded retries", async t => {
+  for (const times of [["19:00"], ["20:05", "20:10"], ["20:05", "21:15", "22:30"], ["00:00"], ["24:00"]]) {
+    const f = promptFixture(t, { generate: async () => ({ times }) }); f.enable(promptConfig);
+    await f.worker.tick(); await f.create().tick(); assert.equal(f.inputs.length, 1);
+    for (let i = 0; i < 2; i++) { f.advance(5 * 60000); await f.create().tick(); }
+    await f.create().tick();
+    assert.equal(f.inputs.length, 3); assert.equal(f.sent.length, 0);
+    assert.equal(f.create().status().posting.plans[0].status, "failed");
+    assert.ok(!JSON.stringify(f.create().status().posting).includes("secret"));
+  }
+  const f = promptFixture(t, { generate: async () => ({ times: ["02:30"] }) });
+  f.setTime(Date.parse("2026-03-08T00:00:00-05:00"));
+  f.enable({ ...promptConfig, timeZone: "America/New_York" }); await f.worker.tick();
+  assert.equal(f.worker.status().posting.plans[0].status, "pending");
+});
+
+test("editing timing prompt keeps today's plan and lowering cap skips extra task", async t => {
+  const f = promptFixture(t); f.enable(promptConfig); await f.worker.tick();
+  f.worker.configure({ postingTimingPrompt: "新提示词明天用", postingDailyLimit: 1 });
+  await f.create().tick(); assert.equal(f.inputs.length, 1);
+  f.setTime(at("2026-10-29T20:05:00")); await f.create().tick();
+  f.setTime(at("2026-10-29T21:15:00")); await f.create().tick();
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.create().status().posting.jobs[0].status, "skipped");
+});
+
+test("stop or account switch during planning never installs an executable plan", async t => {
+  for (const switchAccount of [false, true]) {
+    let release; const f = promptFixture(t, { generate: () => new Promise(resolve => { release = resolve; }) });
+    f.enable(promptConfig); const task = f.worker.tick();
+    if (switchAccount) f.account.id = "8"; else f.worker.configure({ postingEnabled: false });
+    release({ times: ["20:05"] }); await task;
+    assert.equal(f.sent.length, 0);
+    assert.deepEqual(f.worker.data.accounts["7"].posting.plans[0].slots, []);
+  }
+});
+
+test("crashed final planning attempt becomes failed instead of restarting indefinitely", async t => {
+  const f = promptFixture(t); f.enable(promptConfig); await f.worker.tick();
+  const p = f.worker.data.accounts["7"].posting;
+  p.plans[0].status = "planning"; p.plans[0].slots = []; p.plans[0].attempts = 3;
+  p.plans[0].retryAt = at("2026-10-29T20:00:00"); f.worker.save();
+  f.advance(60000); await f.create().tick();
+  assert.equal(f.create().status().posting.plans[0].status, "failed");
+  assert.equal(f.inputs.length, 1);
+});
+
+test("planning cannot publish after midnight while content generation is pending", async t => {
+  const f = promptFixture(t, { generate: async input => {
+    if (input.kind === "post-plan") return { times: ["23:59"] };
+    f.advance(2 * 60000); return { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" };
+  } });
+  f.enable(promptConfig); await f.worker.tick(); f.setTime(at("2026-10-29T23:59:00")); await f.create().tick();
+  assert.equal(f.sent.length, 0);
+  assert.equal(f.create().status().posting.jobs[0].status, "missed");
+});
+
+test("planning via DSH uses JSON plan parser and isolated posting persona", async t => {
+  const f = fixture(t), entry = path.join(f.directory, "planner.mjs");
+  fs.writeFileSync(entry, `import fs from 'node:fs';fs.writeFileSync('prompt.txt',process.argv.at(-1));console.log('{"times":["21:00"]}');`);
+  const result = await generateDecision({ kind: "post-plan", timingPrompt: "每天随机" }, { ...defaults, persona: "GENERAL_ONLY", replyPersona: "REPLY_ONLY", postingPersona: "POST_ONLY", nodePath: process.execPath, dshCommand: entry }, { directory: f.directory, signal: new AbortController().signal });
+  assert.deepEqual(result, { times: ["21:00"] });
+  const prompt = fs.readFileSync(path.join(f.directory, "prompt.txt"), "utf8");
+  assert.ok(prompt.includes("POST_ONLY")); assert.ok(prompt.includes("时间规划器"));
+  assert.ok(!prompt.includes("GENERAL_ONLY")); assert.ok(!prompt.includes("REPLY_ONLY"));
+});
+
+
+test("midnight during planning does not install stale times and next day plans separately", async t => {
+  const f = promptFixture(t, { generate: async () => { f.advance(2 * 60000); return { times: ["23:59"] }; } });
+  f.setTime(at("2026-10-29T23:59:00")); f.enable(promptConfig); await f.worker.tick();
+  assert.equal(f.worker.status().posting.plans[0].status, "pending");
+  await f.create().tick();
+  assert.equal(f.inputs.length, 2); assert.equal(f.sent.length, 0);
+  assert.equal(f.create().status().posting.plans[0].date, "2026-10-30");
+});
+
+test("plan honors actual send spacing when previous generation is delayed", async t => {
+  const f = promptFixture(t, { generate: async input => {
+    if (input.kind === "post-plan") return { times: ["20:05", "21:05"] };
+    if (f.sent.length === 0) f.advance(5 * 60000);
+    return { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" };
+  } });
+  f.enable(promptConfig); await f.worker.tick();
+  f.setTime(at("2026-10-29T20:05:00")); await f.create().tick();
+  f.setTime(at("2026-10-29T21:05:00")); await f.create().tick();
+  assert.equal(f.sent.length, 2);
+  const jobs = f.create().status().posting.jobs;
+  assert.equal(jobs[0].sentAt - jobs[1].sentAt, 60 * 60000);
+});
+
+test("failed plan persistence prevents any model or platform request", async t => {
+  const f = promptFixture(t); f.enable(promptConfig);
+  const save = f.worker.save.bind(f.worker);
+  f.worker.save = () => {
+    if (f.worker.data.accounts["7"].posting.plans?.at(-1)?.status === "planning") throw Object.assign(new Error("disk full"), { persistence: true });
+    return save();
+  };
+  await f.worker.tick();
+  assert.equal(f.inputs.length, 0); assert.equal(f.sent.length, 0);
 });
