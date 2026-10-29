@@ -187,14 +187,14 @@ test("selected destinations persist across restart and generation retry without 
     if (++attempts === 1) throw new Error("temporary failure");
     return { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" };
   } });
-  const communities = [{ id: "7214", name: "游戏讨论" }, { id: "12", name: "主机游戏" }];
+  const communities = [{ id: "42", name: "游戏讨论" }, { id: "12", name: "主机游戏" }];
   const hashtags = [{ name: "关卡设计", isActivity: false }, { name: "讨论活动", isActivity: true }];
   f.enable({ postingTopicId: "", postingCommunities: communities, postingHashtags: hashtags });
   f.advance(60000); await f.worker.tick();
   f.worker.configure({ postingCommunities: [{ id: "9", name: "下次的社区" }], postingHashtags: [] });
   f.advance(60000); const next = f.create(); await next.tick();
   assert.equal(f.sent.length, 1);
-  assert.equal(f.sent[0].form.topic_ids, "7214,12");
+  assert.equal(f.sent[0].form.topic_ids, "42,12");
   assert.deepEqual(JSON.parse(f.sent[0].form.hashtags), ["关卡设计", "讨论活动"]);
   assert.deepEqual(f.inputs[1].input.communities, communities);
   assert.deepEqual(f.inputs[1].input.hashtags, hashtags);
@@ -442,4 +442,14 @@ test("community-only posts submit empty hashtags for manual and AI modes", async
     assert.equal(f.sent.length, 1); assert.equal(f.sent[0].form.hashtags, "[]");
     assert.equal(f.sent[0].form.topic_ids, mode === "ai" ? "42" : "7214");
   }
+});
+
+
+test("posting rejection preserves sanitized platform diagnostics across restart", async t => {
+  const f = fixture(t, { sendError: Object.assign(new Error("private upstream"), { definitive: true, httpStatus: 200, platformStatus: "failed", platformMessage: "缺失参数 fixture-cookie api_key=private-key" }) });
+  f.enable(); f.advance(60000); await f.worker.tick();
+  const job = f.create().status().posting.jobs[0];
+  assert.equal(job.status, "rejected"); assert.equal(job.httpStatus, 200); assert.equal(job.platformStatus, "failed");
+  assert.match(job.platformMessage, /缺失参数/); assert.ok(!JSON.stringify(job).includes("fixture-cookie")); assert.ok(!JSON.stringify(job).includes("private-key"));
+  await f.create().tick(); assert.equal(f.sent.length, 1);
 });

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { searchPostingSelections, resolveSelectionDecision, parseSelectionDecision } from "../lib/posting-selections.js";
+import { searchPostingSelections, resolveSelectionDecision, parseSelectionDecision, validateSelections } from "../lib/posting-selections.js";
 
 test("editor search returns typed, deduplicated safe fields and preserves large IDs", async () => {
   const account = { cookie: "private-cookie" };
@@ -61,4 +61,12 @@ test("blank search merges editor, subscribed and categorized communities without
     return { result: { topic_list: [{ topic_id: 1, name: "推荐" }] } };
   });
   assert.equal(fallback.communities.length, 1); assert.equal(fallback.catalogUnavailable, true);
+});
+
+
+test("盒友杂谈 must be selected alone for manual and AI posting", () => {
+  const communities = [{ id: "7214", name: "盒友杂谈" }, { id: "806933", name: "AI" }];
+  assert.throws(() => validateSelections(communities, []), /只能单独选择/);
+  assert.throws(() => resolveSelectionDecision({ action: "send", communityIds: ["806933", "7214"], hashtagNames: [] }, { communities, hashtags: [] }), /只能单独选择/);
+  assert.doesNotThrow(() => validateSelections(communities.slice(0, 1), []));
 });
