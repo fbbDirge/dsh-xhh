@@ -119,3 +119,12 @@ POST 使用 `Content-Type: application/json`。运行中只接受关闭总开关
 - [heibox-comment-bot](https://github.com/2646617098/heibox-comment-bot)、[xhhRobot](https://github.com/SomeOvO/xhhRobot)、[xiaoheihe-cli](https://github.com/AaronZ345/xiaoheihe-cli) 用于交叉核对评论发送字段与消息字段，仅参考接口契约，未复制第三方实现代码。
 
 接口版本可能变动，尤其作者 ID、评论关系和回执结构应以真实账号返回值再次核对。
+
+
+## 0.11.1 发帖分区与话题选择
+
+新增编辑器分区 / 话题查询接口和发帖设置搜索选择器，保留旧版社区 ID。配置校验限制最多 2 个分区、5 个话题、1 个活动话题，拒绝重复或无效目标；生成上下文包含选择，实际发布由宿主固定提交，使用独立发帖人格。任务持久化目标快照，修改设置不影响已开始的重试任务；旧版未完成任务兼容原 topicId。
+
+按 xiaoheihe-cli 的 selections 与 xiaoheihe_mcp 的编辑器查询接口核对字段：topic 是社区，hashtag 是话题；后者提交名称数组。未复制上游实现代码。增加配置限制、查询归一化、路由登录保护、UI 搜索与移除保存、重启重试快照、旧任务兼容测试。所有平台调用使用模拟回执，未发送真实帖子；分区权限、活动规则、官方接口实际返回和公开可见性仍需真实账号验收。
+
+0.11.1 验证：`npm run check`、77 项 Node 测试及签名 / 客户端冒烟测试通过。真实 React + Chromium 配合模拟接口完成分区 / 话题搜索与选择，1100px 桌面和 390px 窄屏无横向溢出、无页面脚本错误。Gitleaks 扫描未发现密钥泄漏。

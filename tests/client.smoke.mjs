@@ -26,6 +26,7 @@ let dependencies = { ok: true, qrReady: false, nodeReady: true, nodeVersion: "v2
 global.fetch = async (url, options) => {
   const body = options.body ? JSON.parse(options.body) : null;
   requests.push({ url, body, signal: options.signal });
+  if (url.includes("posting-selections?")) return { ok: true, status: 200, json: async () => ({ ok: true, communities: [{ id: "7214", name: "游戏讨论" }], hashtags: [{ name: "关卡设计", isActivity: false }] }) };
   if (url.includes("/watched?")) return { ok: true, status: 200, json: async () => ({ ok: true, total: 1, records: [{ at: Date.now(), type: "browse", title: "示例帖子", postId: "123" }] }) };
   if (url.endsWith("dependencies")) {
     if (body?.action === "install") dependencies = { ...dependencies, installing: true, logs: ["正在安装 qrcode…"] };
@@ -104,11 +105,23 @@ try {
   control(page.render(), "发帖人格").props.onChange({ target: { value: "独立写作人格" } });
   control(page.render(), "发帖主题与要求").props.onChange({ target: { value: "讨论关卡设计" } });
   control(page.render(), "发帖社区 ID").props.onChange({ target: { value: "7214" } });
+  control(page.render(), "搜索分区或话题").props.onChange({ target: { value: "游戏" } });
+  await button(page.render(), "查询分区与话题").props.onClick();
+  assert.ok(requests.some(r => r.url.endsWith("posting-selections?q=" + encodeURIComponent("游戏"))));
+  all(page.render()).find(n => n.props["aria-label"] === "选择分区：游戏讨论").props.onClick();
+  all(page.render()).find(n => n.props["aria-label"] === "选择话题：关卡设计").props.onClick();
+  assert.equal(server.config.postingCommunities.length, 0, "selection changes remain unsaved");
+  all(page.render()).find(n => n.props["aria-label"] === "移除已选话题：关卡设计").props.onClick();
+  assert.equal(all(page.render()).filter(n => n.props["aria-label"] === "移除已选话题：关卡设计").length, 0);
+  all(page.render()).find(n => n.props["aria-label"] === "选择话题：关卡设计").props.onClick();
   control(page.render(), "发帖周期").props.onChange({ target: { value: "weekly" } });
   button(page.render(), "周日").props.onClick();
   assert.deepEqual(control(page.render(), "发帖人格").props.value, "独立写作人格");
   await all(page.render()).find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
   assert.equal(server.config.postingPersona, "独立写作人格");
+  assert.equal(server.config.postingTopicId, "", "search selection clears legacy target");
+  assert.deepEqual(server.config.postingCommunities, [{ id: "7214", name: "游戏讨论" }]);
+  assert.deepEqual(server.config.postingHashtags, [{ name: "关卡设计", isActivity: false }]);
   assert.equal(server.config.postingPrompt, "讨论关卡设计");
   assert.deepEqual(server.config.postingWeekdays, [1, 2, 3, 4, 5, 6]);
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, true);

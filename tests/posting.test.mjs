@@ -160,3 +160,51 @@ test("failed persistence of send intent prevents publishing", async t => {
   };
   await f.worker.tick(); assert.equal(f.sent.length, 0); assert.ok(f.worker.fault);
 });
+
+
+test("community and hashtag config validates limits, duplicates and legacy conflicts", () => {
+  const community = { id: "7214", name: "游戏讨论" }, hashtag = { name: "关卡设计", isActivity: false };
+  const c = validateConfig({ postingEnabled: true, postingCommunities: [community], postingHashtags: [hashtag] });
+  assert.equal(c.postingTopicId, "");
+  for (const patch of [
+    { postingCommunities: [community, community] },
+    { postingCommunities: [community, { id: "2", name: "二" }, { id: "3", name: "三" }] },
+    { postingCommunities: [{ id: "1,2", name: "坏 ID" }] },
+    { postingCommunities: [{ id: "1", name: "<script>" }] },
+    { postingCommunities: [community], postingTopicId: "2" },
+    { postingHashtags: [hashtag, hashtag] },
+    { postingHashtags: Array.from({ length: 6 }, (_, i) => ({ name: String(i), isActivity: false })) },
+    { postingHashtags: [{ name: "活动一", isActivity: true }, { name: "活动二", isActivity: true }] },
+    { postingHashtags: [{ name: "未指定活动标记" }] },
+  ]) assert.throws(() => validateConfig(patch));
+  assert.throws(() => validateConfig({ postingEnabled: true, postingCommunities: [], postingTopicId: "" }));
+});
+
+test("selected destinations persist across restart and generation retry without changing snapshots", async t => {
+  let attempts = 0;
+  const f = fixture(t, { generate: async () => {
+    if (++attempts === 1) throw new Error("temporary failure");
+    return { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" };
+  } });
+  const communities = [{ id: "7214", name: "游戏讨论" }, { id: "12", name: "主机游戏" }];
+  const hashtags = [{ name: "关卡设计", isActivity: false }, { name: "讨论活动", isActivity: true }];
+  f.enable({ postingTopicId: "", postingCommunities: communities, postingHashtags: hashtags });
+  f.advance(60000); await f.worker.tick();
+  f.worker.configure({ postingCommunities: [{ id: "9", name: "下次的社区" }], postingHashtags: [] });
+  f.advance(60000); const next = f.create(); await next.tick();
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].form.topic_ids, "7214,12");
+  assert.deepEqual(JSON.parse(f.sent[0].form.hashtags), ["关卡设计", "讨论活动"]);
+  assert.deepEqual(f.inputs[1].input.communities, communities);
+  assert.deepEqual(f.inputs[1].input.hashtags, hashtags);
+  assert.deepEqual(next.status().posting.jobs[0].hashtags, hashtags);
+});
+
+test("legacy pending jobs without selections continue with their original community", async t => {
+  const f = fixture(t); f.enable(); f.advance(60000);
+  const p = f.worker.data.accounts["7"].posting;
+  p.jobs.push({ id: "legacy", slot: p.nextAt, status: "pending", attempts: 0, persona: "OLD", prompt: "游戏", topicId: "123" });
+  f.worker.save(); await f.create().tick();
+  assert.equal(f.sent[0].form.topic_ids, "123");
+  assert.deepEqual(JSON.parse(f.sent[0].form.hashtags), []);
+});

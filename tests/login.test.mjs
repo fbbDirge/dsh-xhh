@@ -98,7 +98,9 @@ test('host routes persist confirmed account privately and never return credentia
   global.fetch = async (url, options) => {
     requests.push({ url: String(url), options });
     const endpoint = new URL(url).pathname;
-    const data = endpoint === '/account/get_qrcode_url/'
+    const data = endpoint.startsWith('/bbs/app/api/post_editor/topic_selection/')
+      ? { status: 'ok', result: { search_result: [{ search_type: 'topic', topic_id: '7214', name: '游戏讨论', secret: 'must-not-return' }, { search_type: 'hashtag', name: '关卡设计' }] } }
+      : endpoint === '/account/get_qrcode_url/'
       ? { status: 'ok', result: { qr_url: qrUrl, expire: 120 } }
       : { status: 'ok', result: { error: 'ok', profile: { heybox_id: '123' }, pkey: 'host-only-key' } };
     return new Response(JSON.stringify(data), { headers: { 'Set-Cookie': 'extra=host-only-cookie; HttpOnly; Path=/' } });
@@ -119,6 +121,19 @@ test('host routes persist confirmed account privately and never return credentia
       assert.equal((await call(route, { action: 'logout' }, { 'content-type': 'text/plain' })).status, 415);
     }
     assert.equal(requests.length, 0, 'rejected browser requests never reach upstream');
+    const selectRoute = routes.get('/heybox/posting-selections');
+    let selections, selectionCode;
+    const selectionResponse = { setHeader() {}, writeHead(code) { selectionCode = code; }, end(value) { selections = JSON.parse(value); } };
+    await selectRoute.handler({ method: 'GET', url: '/heybox/posting-selections?q=' + encodeURIComponent('游戏') }, selectionResponse);
+    assert.equal(selectionCode, 200);
+    assert.deepEqual(selections.communities, [{ id: '7214', name: '游戏讨论' }]);
+    assert.deepEqual(selections.hashtags, [{ name: '关卡设计', isActivity: false }]);
+    assert.ok(!JSON.stringify(selections).includes('secret'));
+    assert.ok(!JSON.stringify(selections).includes('cookie'));
+    assert.equal(new URL(requests.at(-1).url).searchParams.get('web_version'), '3.0');
+    await selectRoute.handler({ method: 'POST' }, selectionResponse);
+    assert.equal(selectionCode, 405);
+
     let watchedResult, watchedCode;
     const watchedResponse = { setHeader() {}, writeHead(code) { watchedCode = code; }, end(value) { watchedResult = JSON.parse(value); } };
     routes.get('/heybox/watched').handler({ method: 'GET', url: '/heybox/watched?offset=0&limit=50' }, watchedResponse);
@@ -155,6 +170,11 @@ test('host routes persist confirmed account privately and never return credentia
     assert.equal(fs.statSync(file).mode & 0o777, 0o600);
     const publicState = await call('/heybox/state', { action: 'logout' });
     assert.equal(publicState.result.loggedIn, false);
+    const requestCount = requests.length;
+    await selectRoute.handler({ method: 'GET', url: '/heybox/posting-selections?q=test' }, selectionResponse);
+    assert.equal(selectionCode, 401);
+    assert.equal(requests.length, requestCount, 'logged-out queries never reach platform');
+
     assert.ok(!JSON.stringify(publicState).includes('host-only'));
     const manual = await call('/heybox/state', { action: 'login', cookie: 'heybox_id=456; user_pkey=manual-secret' });
     assert.equal(manual.result.loggedIn, true);
