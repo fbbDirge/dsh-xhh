@@ -415,3 +415,20 @@ test("selection subprocess parser and persona remain independent", async t => {
   assert.ok(!JSON.stringify(messages).includes("GENERAL_ONLY"));
   assert.ok(!JSON.stringify(messages).includes("REPLY_ONLY"));
 });
+
+
+test("long posting role cards persist intact and reach all posting model stages", async t => {
+  const persona = "# 小鲸鱼角色卡\n" + "网瘾水友，保持论坛口吻。\n".repeat(500);
+  assert.ok(persona.length > 2000);
+  const f = fixture(t, { generate: async input => input.kind === "post-select" ? { action: "send", communityIds: ["42"], hashtagNames: [] } : { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" } });
+  f.enable({ postingSelectionMode: "ai", postingPersona: persona });
+  assert.equal(f.create().status().config.postingPersona, persona);
+  f.advance(60000); await f.worker.tick();
+  assert.equal(f.sent.length, 1);
+  for (const { input, config } of f.inputs) {
+    assert.equal(config.postingPersona, persona);
+    assert.ok(decisionMessages(input, config)[0].content.includes(persona));
+  }
+  assert.equal(validateConfig({ postingPersona: "鲸".repeat(20000) }).postingPersona.length, 20000);
+  assert.throws(() => validateConfig({ postingPersona: "鲸".repeat(20001) }), /最多 20000/);
+});

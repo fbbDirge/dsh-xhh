@@ -102,6 +102,12 @@ try {
   assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "发帖", "评论记录", "运行时段", "高级"]);
   assert.equal(tabs.filter((n) => n.props["aria-selected"]).length, 1);
   button(tree, "发帖").props.onClick();
+  assert.equal(control(page.render(), "发帖人格").props.maxLength, 20000);
+  const longPersona = "# 小鲸鱼角色卡\n" + "论坛口吻，保持人格。\n".repeat(400);
+  control(page.render(), "发帖人格").props.onChange({ target: { value: longPersona } });
+  await all(page.render()).find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.equal(server.config.postingPersona, longPersona);
+  assert.ok(text(page.render()).includes(longPersona.length + " / 20000"));
   control(page.render(), "发帖人格").props.onChange({ target: { value: "独立写作人格" } });
   control(page.render(), "发帖主题与要求").props.onChange({ target: { value: "讨论关卡设计" } });
   control(page.render(), "发帖社区 ID").props.onChange({ target: { value: "7214" } });

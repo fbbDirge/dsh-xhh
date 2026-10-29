@@ -105,7 +105,7 @@ API Key 保存在服务器配置文件，状态接口不返回密钥；表单留
 | 配置 | 默认值 | 说明 |
 | --- | --- | --- |
 | postingEnabled | false | 发帖开关；通过设置页开启时绑定账号 |
-| postingPersona | 内置独立发帖人格 | 最多 2000 字，开启时不能为空 |
+| postingPersona | 内置独立发帖人格 | 最多 20000 字符，支持完整多行角色卡；开启时不能为空 |
 | postingPrompt | 游戏话题讨论 | 最多 4000 字，开启时不能为空 |
 | postingCommunities | [] | 最多 2 个分区，格式 `{ "id": "社区数字 ID", "name": "分区名称" }`；按 ID 去重 |
 | postingHashtags | [] | 最多 5 个话题，格式 `{ "name": "标签名称", "isActivity": false }`；名称去重，活动话题最多 1 个 |
