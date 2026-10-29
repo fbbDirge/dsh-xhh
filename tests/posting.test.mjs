@@ -432,3 +432,14 @@ test("long posting role cards persist intact and reach all posting model stages"
   assert.equal(validateConfig({ postingPersona: "鲸".repeat(20000) }).postingPersona.length, 20000);
   assert.throws(() => validateConfig({ postingPersona: "鲸".repeat(20001) }), /最多 20000/);
 });
+
+
+test("community-only posts submit empty hashtags for manual and AI modes", async t => {
+  for (const mode of ["manual", "ai"]) {
+    const f = fixture(t, { generate: async input => input.kind === "post-select" ? { action: "send", communityIds: ["42"], hashtagNames: [] } : { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" } });
+    f.enable({ postingSelectionMode: mode, postingHashtags: [] });
+    f.advance(60000); await f.worker.tick();
+    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].form.hashtags, "[]");
+    assert.equal(f.sent[0].form.topic_ids, mode === "ai" ? "42" : "7214");
+  }
+});

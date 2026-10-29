@@ -23,6 +23,7 @@ test("editor search returns typed, deduplicated safe fields and preserves large 
 
 test("empty query reads editor suggestions; malformed responses and queries fail", async () => {
   const result = await searchPostingSelections({}, async (_, endpoint, params) => {
+    if (endpoint === "/bbs/app/topic/categories") return { result: { latest_hot_topics: { children: [] } } };
     assert.equal(endpoint, "/bbs/app/api/post_editor/topic_selection/index");
     assert.deepEqual(params, { web_version: "3.0" });
     return { result: { topic_list: [{ topic_id: 7, name: "社区" }], hashtag_list: [{ name: "标签" }] } };
@@ -45,4 +46,19 @@ test("AI selection rejects fabricated targets, duplicate IDs and multiple activi
     { action: "send", communityIds: ["42"], hashtagNames: ["活动一", "活动一"] },
   ]) assert.throws(() => resolveSelectionDecision(value, candidates));
   assert.deepEqual(parseSelectionDecision('```json\n{"action":"skip"}\n```'), { action: "skip" });
+});
+
+
+test("blank search merges editor, subscribed and categorized communities without requiring hashtags", async () => {
+  const result = await searchPostingSelections({}, async (_, endpoint) => endpoint.includes("topic_selection")
+    ? { result: { topic_list: [{ topic_id: 1, name: "推荐" }], hashtag_list: [] } }
+    : { result: { subscribed_topics: { children: [{ topic_id: 2, name: "已关注" }] }, latest_hot_topics: { children: [{ topic_id: 1, name: "重复" }, { topic_id: 3, name: "热门" }] }, categories: [{ name: "分类", children: [{ topic_id: "4", name: "其他分区" }, { topic_id: 5, name: "失效", valid: 0 }, { topic_id: "bad", name: "无效" }] }] } });
+  assert.deepEqual(result.communities.map(v => v.id), ["1", "2", "3", "4"]);
+  assert.deepEqual(result.hashtags, []);
+  assert.equal(result.catalogUnavailable, false);
+  const fallback = await searchPostingSelections({}, async (_, endpoint) => {
+    if (!endpoint.includes("topic_selection")) throw new Error("unavailable");
+    return { result: { topic_list: [{ topic_id: 1, name: "推荐" }] } };
+  });
+  assert.equal(fallback.communities.length, 1); assert.equal(fallback.catalogUnavailable, true);
 });
