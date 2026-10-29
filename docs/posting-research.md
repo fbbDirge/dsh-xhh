@@ -1,16 +1,18 @@
 # 发帖、定时发布与搜图调研
 
-核对日期：2026-10-25。只检查代码，没有上传图片或发布真实帖子。
+核对日期：2026-10-29。只检查代码，没有上传图片或发布真实帖子。新增核对了两个 MCP 项目的图文 / 文章发布实现及其调度能力。
 
 ## 已有能力
 
 | 项目 | 发布新帖 | 图片上传 | 定时发布新帖 | 关键词搜图 |
 | --- | --- | --- | --- | --- |
-| 当前 dsh-xhh | 未实现 | 未实现，只有平台图片读取代理 | 未实现，现有调度用于浏览和互动 | 未实现 |
+| 当前 dsh-xhh（0.11.0） | 已实现文字帖生成和发布，待真实账号验收 | 未实现，只有平台图片读取代理 | 已实现独立人格及单次 / 每天 / 每周持久化调度 | 未实现 |
 | dsh-bili-scroll | 当前移除了上传视频、发动态和专栏工具 | 没有可复用的小黑盒上传实现 | 有浏览任务调度，没有新帖发布调度 | 搜视频和读取视频画面，不是图片搜索 |
 | dsh-xiaoheihe / WenfuRainbow/heybox | 未发现新帖发布入口 | 读取帖子图片，不是上传 | 未发现 | 未发现 |
 | heibox-comment-bot / xhhRobot | 评论或回复，不是新帖 | 未发现所需的新帖图片上传流程 | 自动评论或回复，不是定时发帖 | 未发现 |
 | xiaoheihe-cli | 有文章、图文、视频发布代码及草稿模式 | 有本地图片检查和 COS 上传流程 | 未发现发布时刻配置或持久化发帖队列 | 搜索类型为帖子、用户、游戏、社区，没有图片搜索 |
+| insect-rippler/xiaoheihe_mcp | 有纯 HTTP 图文和文章发布 | 有本地图片 COS 上传 | 发布字段 schedule_ts 固定为 0，未发现调度队列 | 未发现 |
+| wsmxd/XiaoheiheMcpServer | 有浏览器操作创作中心的图文、文章和视频发布 | 通过网页文件选择器上传 | 未发现发帖调度器 | 未发现 |
 
 这里的“有”指存在源码实现，不代表本插件已接入，也不代表此次使用真实账号验收通过。
 
@@ -33,6 +35,32 @@
 6. 把图片 URL 和宽高加入帖子内容块再提交。
 
 参考的上传结果不明时停止而不重传，适合沿用现有插件的持久化发送意图与去重策略。
+
+## 新增参考与复用建议
+
+### 纯 HTTP：insect-rippler/xiaoheihe_mcp
+
+核对版本：`d8935f9e8640c78bc3154fa9d6f277cb245a06c1`，MIT 许可证。
+
+- [publish.ts](https://github.com/insect-rippler/xiaoheihe_mcp/blob/d8935f9e8640c78bc3154fa9d6f277cb245a06c1/src/services/publish.ts)：`publishImageText` 发布图文，`link_tag=27`；`publishArticle` 发布文章，`link_tag=11`。图文正文使用 text / img 内容块，文章使用 HTML 内容块。
+- 社区可直接传 topic ID，也可通过编辑器社区搜索接口按名称精确匹配；无匹配时返回错误，避免发布到名称相近的其他社区。
+- [upload.ts](https://github.com/insect-rippler/xiaoheihe_mcp/blob/d8935f9e8640c78bc3154fa9d6f277cb245a06c1/src/services/upload.ts)：实现上传信息、临时凭据、COS PUT、回调四个步骤；适合参考其 Node 实现。
+- [xhh.ts](https://github.com/insect-rippler/xiaoheihe_mcp/blob/d8935f9e8640c78bc3154fa9d6f277cb245a06c1/src/client/xhh.ts)：发帖调用 `/bbs/app/api/link/post`，使用 webVersion=3.0；评论另行启用 Workshop。这与 xiaoheihe-cli 对发帖额外使用 workshop_params 的做法存在差异，需要联调确认当前有效的域名和签名组合。
+- 两种发布表单的 `schedule_ts` 都写为 `0`，没有提供发布时间参数或持久化任务。仅凭此字段不能确认服务端支持预约发布，插件仍应自行实现定时队列。
+
+不能直接照搬的细节：图片尺寸函数只读取 PNG 宽高，其他格式固定回退为 600×400；应改成实际解码并验证格式和大小。发布函数在传输层接受 status=ok 后直接返回 ok=true，帖子 ID 可以为空，也没有读取核验；应区分“请求被接受”“取得帖子 ID”“读取核验通过”。dryRun 会跳过上传，但会查询社区，不是完全离线的图片 / 发布验收。
+
+该项目明确不带人格或 Agent 循环，不能承担本插件的内容生成和调度。自动生成帖子时，应复用本插件已有的人格配置和模型提供方，再把生成结果保存成内容快照交给发帖队列。
+
+### 浏览器方式：wsmxd/XiaoheiheMcpServer
+
+核对版本：`bba82d06c0cab704cd1ecf82503b32b95ea1e0ab`，MIT 许可证。
+
+- [PublishService.cs](https://github.com/wsmxd/XiaoheiheMcpServer/blob/bba82d06c0cab704cd1ecf82503b32b95ea1e0ab/src/XiaoheiheMcpServer.Shared/Services/PublishService.cs)：通过浏览器进入 `/creator/editor/draft/image_text` 或视频编辑页，填写内容并选择本地文件上传。
+- [ArticlePublishService.cs](https://github.com/wsmxd/XiaoheiheMcpServer/blob/bba82d06c0cab704cd1ecf82503b32b95ea1e0ab/src/XiaoheiheMcpServer.Shared/Services/ArticlePublishService.cs)：操作文章编辑器、插入图片、选择社区和话题，再尝试点击发布；未点击成功时会提示手动检查。其成功提示不足以代替帖子 ID 和发布后读取核验。
+- 核对源码未发现发帖调度器；需要浏览器运行环境，网页选择器变化也会影响发布流程。
+
+建议优先采用纯 HTTP 方式，参考 xiaoheihe_mcp 的 Node 上传实现和 xiaoheihe-cli 的草稿 / 读取核验流程。浏览器方式可用于协议不可用时的备选方案。实际复用 MIT 源码时应保留对应版权及许可证声明；不需要整套引入 MCP 或 C# 服务。
 
 ## 建议的插件入口
 

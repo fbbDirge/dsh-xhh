@@ -98,8 +98,19 @@ try {
   let tree = page.render();
   assert.ok(text(tree).includes("已保存 Cookie"));
   const tabs = all(tree).filter((n) => n.props.role === "tab");
-  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "评论记录", "运行时段", "高级"]);
+  assert.deepEqual(tabs.map(text), ["概览", "账号", "浏览", "互动", "发帖", "评论记录", "运行时段", "高级"]);
   assert.equal(tabs.filter((n) => n.props["aria-selected"]).length, 1);
+  button(tree, "发帖").props.onClick();
+  control(page.render(), "发帖人格").props.onChange({ target: { value: "独立写作人格" } });
+  control(page.render(), "发帖主题与要求").props.onChange({ target: { value: "讨论关卡设计" } });
+  control(page.render(), "发帖社区 ID").props.onChange({ target: { value: "7214" } });
+  control(page.render(), "发帖周期").props.onChange({ target: { value: "weekly" } });
+  button(page.render(), "周日").props.onClick();
+  assert.deepEqual(control(page.render(), "发帖人格").props.value, "独立写作人格");
+  await all(page.render()).find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.equal(server.config.postingPersona, "独立写作人格");
+  assert.equal(server.config.postingPrompt, "讨论关卡设计");
+  assert.deepEqual(server.config.postingWeekdays, [1, 2, 3, 4, 5, 6]);
   assert.equal(all(tree).find((n) => n.props.id === "hx-panel-browse").props.hidden, true);
   button(tree, "浏览").props.onClick();
   tree = page.render();
@@ -178,7 +189,7 @@ try {
   await button(page.render(), "立即执行一轮").props.onClick();
   assert.equal(button(page.render(), "保存设置").props.disabled, true);
   await button(page.render(), "停止全部任务").props.onClick();
-  assert.deepEqual(requests.filter((r) => r.body?.action === "configure").at(-1).body.config, { enabled: false, autoReply: false });
+  assert.deepEqual(requests.filter((r) => r.body?.action === "configure").at(-1).body.config, { enabled: false, autoReply: false, postingEnabled: false });
 
   control(page.render(), "Cookie").props.onChange({ target: { value: "heybox_id=123; user_pkey=secret" } });
   await button(page.render(), "保存账号").props.onClick();

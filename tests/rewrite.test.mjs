@@ -127,6 +127,13 @@ try {
   assert.equal(readParams.get("device_id"),state.deviceId);
   assert.equal(readParams.get("offset"),"20");
   assert.equal(readParams.has("_rnd"),false);
+  const postForm = { title: "图文标题", text: JSON.stringify([{ type: "text", text: "正文 & + %\n第二行" }]), topic_ids: "7214", draft: "0" };
+  await requestHeybox(state,"/bbs/app/api/link/post",{web_version:"3.0"},"POST",postForm);
+  const postCall = writeCalls.at(-1);
+  assert.equal(postCall.url.pathname,"/bbs/app/api/link/post");
+  assert.equal(postCall.url.searchParams.get("web_version"),"3.0");
+  assert.equal(postCall.url.searchParams.get("hkey"),ov(postCall.url.pathname,Number(postCall.url.searchParams.get("_time")),postCall.url.searchParams.get("nonce")));
+  assert.deepEqual(Object.fromEntries(new URLSearchParams(postCall.options.body)),postForm);
 
   globalThis.fetch=async()=>new Response(JSON.stringify({status:"failed",msg:"缺失参数",result:{}}),{status:200});
   await assert.rejects(requestHeybox(state,"/bbs/app/comment/create",{},"POST",{}),(error)=>{

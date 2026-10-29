@@ -70,7 +70,8 @@ test("external API shares personas, isolates credentials and validates output", 
     if (mode === "large") return res.end("x".repeat(1024 * 1024 + 1));
     const text = mode === "invalid" ? "@额外用户" : "评论正文";
     res.setHeader("Content-Type", "application/json");
-    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: "send", text }) } }] }));
+    const posting = requests.at(-1).body.messages[0].content.includes("独立发帖人格");
+    res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: "send", ...(posting ? { title: "测试标题" } : {}), text }) } }] }));
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => { server.closeAllConnections(); server.close(); });
@@ -90,6 +91,13 @@ test("external API shares personas, isolates credentials and validates output", 
   }
   await generate("reply", { replyPersona: " " });
   assert.ok(requests.at(-1).body.messages[0].content.includes("GENERAL_PERSONA"));
+  const post = await generateDecision({ kind: "post", topic: "游戏讨论" }, { ...config, postingPersona: "POST_PERSONA" }, { signal: new AbortController().signal });
+  assert.equal(post.title, "测试标题");
+  const postRequest = requests.at(-1).body;
+  assert.ok(postRequest.messages[0].content.includes("POST_PERSONA"));
+  assert.ok(!JSON.stringify(postRequest).includes("GENERAL_PERSONA"));
+  assert.ok(!JSON.stringify(postRequest).includes("REPLY_PERSONA"));
+  assert.equal(postRequest.max_tokens, 4096);
   mode = "failure";
   await assert.rejects(generate(), (e) => e.message.includes("401") && !e.message.includes("secret"));
   mode = "invalid";
