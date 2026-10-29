@@ -23,6 +23,7 @@ function fixture(t, options = {}) {
       if (options.sendError) throw options.sendError;
       return options.receipt ?? { status: "ok", result: { link_id: "101" } };
     }
+    if (endpoint.includes("topic_selection/")) return options.selectionResponse ?? { result: { topic_list: [{ topic_id: "42", name: "游戏讨论" }], hashtag_list: [{ name: "关卡设计" }] } };
     return { result: { link: { linkid: "101", title: "游戏设计", text: JSON.stringify([{ type: "text", text: "关卡设计可以更有趣。" }]) } } };
   };
   const generate = async (input, config, context) => {
@@ -355,4 +356,62 @@ test("failed plan persistence prevents any model or platform request", async t =
   };
   await f.worker.tick();
   assert.equal(f.inputs.length, 0); assert.equal(f.sent.length, 0);
+});
+
+
+test("AI selection config keeps manual compatibility and accepts no preset community", () => {
+  assert.equal(defaults.postingSelectionMode, "manual");
+  assert.doesNotThrow(() => validateConfig({ postingEnabled: true, postingSelectionMode: "ai" }));
+  for (const patch of [{ postingSelectionMode: "random" }, { postingSelectionQuery: "x".repeat(101) }, { postingSelectionQuery: "bad\nquery" }, { postingSelectionPrompt: 1 }]) assert.throws(() => validateConfig(patch));
+});
+
+test("AI selects only platform candidates before generating and persists the destination", async t => {
+  const f = fixture(t, { generate: async input => input.kind === "post-select" ? { action: "send", communityIds: ["42"], hashtagNames: ["关卡设计"] } : { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" } });
+  f.enable({ postingSelectionMode: "ai" }); f.advance(60000); await f.worker.tick();
+  assert.deepEqual(f.inputs.map(v => v.input.kind), ["post-select", "post"]);
+  assert.equal(f.inputs[0].config.postingPersona, "POST_PERSONA");
+  assert.deepEqual(f.inputs[1].input.communities, [{ id: "42", name: "游戏讨论" }]);
+  assert.equal(f.sent[0].form.topic_ids, "42");
+  assert.equal(f.sent[0].form.hashtags, '["关卡设计"]');
+  const job = f.create().status().posting.jobs[0];
+  assert.equal(job.selectionResolved, true); assert.equal(job.selectionMode, "ai");
+});
+
+test("empty candidates, model skips and invented destinations cannot publish", async t => {
+  for (const options of [
+    { selectionResponse: { result: { topic_list: [], hashtag_list: [] } } },
+    { generate: async () => ({ action: "skip" }) },
+    { generate: async () => ({ action: "send", communityIds: ["999"], hashtagNames: [] }) },
+    { generate: async () => ({ action: "send", communityIds: ["42"], hashtagNames: ["编造话题"] }) },
+  ]) {
+    const f = fixture(t, options); f.enable({ postingSelectionMode: "ai" }); f.advance(60000); await f.worker.tick();
+    assert.equal(f.sent.length, 0);
+    assert.ok(["skipped", "pending"].includes(f.worker.status().posting.jobs[0].status));
+  }
+});
+
+test("resolved AI selections survive content failures, restart and config changes", async t => {
+  let selects = 0, posts = 0;
+  const f = fixture(t, { generate: async input => {
+    if (input.kind === "post-select") { selects++; return { action: "send", communityIds: ["42"], hashtagNames: [] }; }
+    if (++posts === 1) throw new Error("fixture generation failure");
+    return { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" };
+  } });
+  f.enable({ postingSelectionMode: "ai" }); f.advance(60000); await f.worker.tick();
+  assert.equal(f.sent.length, 0);
+  const restarted = f.create(); restarted.configure({ postingSelectionMode: "manual", postingTopicId: "123" });
+  f.advance(60000); await restarted.tick();
+  assert.equal(selects, 1); assert.equal(f.sent[0].form.topic_ids, "42");
+});
+
+test("selection subprocess parser and persona remain independent", async t => {
+  const f = fixture(t);
+  const entry = path.join(f.directory, "select-model.mjs");
+  fs.writeFileSync(entry, 'process.stdout.write(JSON.stringify({action:"send",communityIds:["42"],hashtagNames:[]}));');
+  const result = await generateDecision({ kind: "post-select", candidates: { communities: [{ id: "42", name: "游戏" }], hashtags: [] } }, { ...defaults, postingPersona: "POST_ONLY", nodePath: process.execPath, dshCommand: entry }, { directory: f.directory, signal: new AbortController().signal });
+  assert.deepEqual(result.communityIds, ["42"]);
+  const messages = decisionMessages({ kind: "post-select" }, { ...defaults, persona: "GENERAL_ONLY", replyPersona: "REPLY_ONLY", postingPersona: "POST_ONLY" });
+  assert.ok(messages[0].content.includes("POST_ONLY"));
+  assert.ok(!JSON.stringify(messages).includes("GENERAL_ONLY"));
+  assert.ok(!JSON.stringify(messages).includes("REPLY_ONLY"));
 });

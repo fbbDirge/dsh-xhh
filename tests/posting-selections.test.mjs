@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { searchPostingSelections } from "../lib/posting-selections.js";
+import { searchPostingSelections, resolveSelectionDecision, parseSelectionDecision } from "../lib/posting-selections.js";
 
 test("editor search returns typed, deduplicated safe fields and preserves large IDs", async () => {
   const account = { cookie: "private-cookie" };
@@ -31,4 +31,18 @@ test("empty query reads editor suggestions; malformed responses and queries fail
   assert.deepEqual(result.hashtags, [{ name: "标签", isActivity: false }]);
   for (const q of ["x".repeat(101), "bad\nquery", 7]) await assert.rejects(searchPostingSelections({}, () => assert.fail("must not query"), q));
   await assert.rejects(searchPostingSelections({}, async () => ({ result: { search_result: {} } }), "游戏"));
+});
+
+
+test("AI selection rejects fabricated targets, duplicate IDs and multiple activities", () => {
+  const candidates = { communities: [{ id: "42", name: "游戏" }], hashtags: [{ name: "活动一", isActivity: true }, { name: "活动二", isActivity: true }] };
+  assert.deepEqual(resolveSelectionDecision({ action: "send", communityIds: ["42"], hashtagNames: [] }, candidates).communities, candidates.communities);
+  for (const value of [
+    { action: "send", communityIds: [], hashtagNames: [] },
+    { action: "send", communityIds: [42], hashtagNames: [] },
+    { action: "send", communityIds: ["42", "42"], hashtagNames: [] },
+    { action: "send", communityIds: ["42"], hashtagNames: ["活动一", "活动二"] },
+    { action: "send", communityIds: ["42"], hashtagNames: ["活动一", "活动一"] },
+  ]) assert.throws(() => resolveSelectionDecision(value, candidates));
+  assert.deepEqual(parseSelectionDecision('```json\n{"action":"skip"}\n```'), { action: "skip" });
 });

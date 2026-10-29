@@ -124,6 +124,16 @@ try {
   assert.deepEqual(server.config.postingHashtags, [{ name: "关卡设计", isActivity: false }]);
   assert.equal(server.config.postingPrompt, "讨论关卡设计");
   assert.deepEqual(server.config.postingWeekdays, [1, 2, 3, 4, 5, 6]);
+  control(page.render(), "分区与话题选择方式").props.onChange({ target: { value: "ai" } });
+  assert.equal(all(page.render()).some(n => n.props["aria-label"] === "搜索分区或话题"), false);
+  control(page.render(), "AI 候选搜索词").props.onChange({ target: { value: "单机游戏" } });
+  control(page.render(), "AI 分区与话题选择偏好").props.onChange({ target: { value: "优先讨论游戏设计" } });
+  await all(page.render()).find(n => n.type === "form").props.onSubmit({ preventDefault() {} });
+  assert.equal(server.config.postingSelectionMode, "ai");
+  assert.equal(server.config.postingSelectionQuery, "单机游戏");
+  assert.equal(server.config.postingSelectionPrompt, "优先讨论游戏设计");
+  control(page.render(), "分区与话题选择方式").props.onChange({ target: { value: "manual" } });
+  assert.ok(all(page.render()).some(n => n.props["aria-label"] === "移除已选分区：游戏讨论"));
   control(page.render(), "发帖时间方式").props.onChange({ target: { value: "prompt" } });
   assert.equal(all(page.render()).some(n => n.props["aria-label"] === "每天发布时间"), false);
   control(page.render(), "发帖时间提示词").props.onChange({ target: { value: "每天午休或晚间随机发 1–2 条" } });

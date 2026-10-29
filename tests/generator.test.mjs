@@ -70,6 +70,7 @@ test("external API shares personas, isolates credentials and validates output", 
     if (mode === "large") return res.end("x".repeat(1024 * 1024 + 1));
     const text = mode === "invalid" ? "@额外用户" : "评论正文";
     res.setHeader("Content-Type", "application/json");
+    if (requests.at(-1).body.messages[0].content.includes("分区与话题选择助手")) return res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ action: "send", communityIds: ["42"], hashtagNames: [] }) } }] }));
     const planning = requests.at(-1).body.messages[0].content.includes("时间规划器");
     if (planning) return res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ times: ["21:05"] }) } }] }));
     const posting = requests.at(-1).body.messages[0].content.includes("独立发帖人格");
@@ -108,6 +109,10 @@ test("external API shares personas, isolates credentials and validates output", 
   assert.ok(!JSON.stringify(planRequest).includes("REPLY_PERSONA"));
   assert.ok(!JSON.stringify(planRequest).includes("secret-key"));
   assert.equal(planRequest.tools, undefined);
+  const selection = await generateDecision({ kind: "post-select", candidates: {} }, { ...config, postingPersona: "POST_PERSONA" }, { signal: new AbortController().signal });
+  assert.deepEqual(selection, { action: "send", communityIds: ["42"], hashtagNames: [] });
+  assert.ok(requests.at(-1).body.messages[0].content.includes("POST_PERSONA"));
+  assert.ok(!JSON.stringify(requests.at(-1).body).includes("secret-key"));
   mode = "failure";
   await assert.rejects(generate(), (e) => e.message.includes("401") && !e.message.includes("secret"));
   mode = "invalid";
