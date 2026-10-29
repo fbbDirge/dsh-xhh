@@ -579,3 +579,127 @@ test("exhausted subcomment scan resets cursor to discover later additions",async
   worker.configure({autoReply:true});await worker.run("reply");
   assert.equal(worker.status().replyQueue.length,1);assert.equal(worker.data.accounts[7].replyQueue[91].scanCursor,undefined);
 });
+
+function ownPostFixture(t, { rootId = 91, author = 7, targetUser = 8, generate, nested = false, replyUser = 7 } = {}) {
+  const f = fixture(t, generate ? { generate } : {}), read = f.worker.api;
+  f.worker.api = async (...args) => {
+    if (args[1].endsWith('/message')) return { result: { messages: [{ comment_a_id: nested ? 92 : 91, root_comment_id: rootId, linkid: 1, is_unread: 1 }] } };
+    if (args[1].endsWith('/tree')) return { result: { link: { linkid: 1, title: '我的游戏分享', text: '正文', user: author ? { userid: author } : undefined }, comments: [
+      { comment: [{ commentid: 91, user: { userid: targetUser }, text: '请问适合新手吗？' }, ...(nested ? [{ commentid: 92, reply_id: 91, user: { userid: 9 }, replyuser: { userid: replyUser }, text: '继续问作者' }] : [])] }
+    ] } };
+    return read(...args);
+  };
+  return f;
+}
+
+test('own-post options validate and old configs remain opt-in', t => {
+  assert.equal(defaults.replyOwnPosts, false);
+  assert.equal(defaults.ownPostReplyPersona, 'reply');
+  assert.throws(() => validateConfig({ replyOwnPosts: 'true' }));
+  assert.throws(() => validateConfig({ ownPostReplyPersona: 'other' }));
+  assert.throws(() => validateConfig({ replyOwnPosts: true, ownPostReplyPersona: 'posting', postingPersona: ' ' }));
+  const f = fixture(t); f.worker.configure({ autoReply: true });
+  const config = JSON.parse(fs.readFileSync(f.worker.configFile)); delete config.replyOwnPosts; delete config.ownPostReplyPersona;
+  fs.writeFileSync(f.worker.configFile, JSON.stringify(config)); f.worker.reload();
+  assert.equal(f.worker.data.config.replyOwnPosts, false);
+});
+
+test('own top-level comments use correct reply/root IDs and deduplicate after restart', async t => {
+  for (const rootId of [91, 0, null]) {
+    const inputs = [];
+    const f = ownPostFixture(t, { rootId, generate: async (input, config) => { inputs.push({ input, config }); return { action: 'send', text: '新手可以从简单难度开始。' }; } });
+    f.worker.configure({ autoReply: true, replyOwnPosts: true, replyPersona: 'REPLY_ONLY', postingPersona: 'POST_ONLY' });
+    await f.worker.run('reply');
+    assert.equal(f.sent.length, 1); assert.equal(f.sent[0].reply_id, '91'); assert.equal(f.sent[0].root_id, '91');
+    assert.equal(inputs[0].input.ownPost, true); assert.equal(inputs[0].config.replyPersona, 'REPLY_ONLY');
+    assert.equal(f.worker.status().interactions[0].ownPost, true); assert.equal(f.worker.status().interactions[0].personaSource, 'reply');
+    const reopened = new Automation({ directory: f.directory, account: f.worker.account, api: f.worker.api, generate: f.worker.generate, now: f.worker.now, wait: f.worker.wait });
+    await reopened.run('reply'); assert.equal(f.sent.length, 1);
+  }
+});
+
+test('disabled own-post switch preserves queued comments for re-enable and failed generation retries', async t => {
+  let calls = 0;
+  const f = ownPostFixture(t, { generate: async () => { if (++calls === 1) throw new Error('temporary'); return { action: 'send', text: '谢谢你的留言。' }; } });
+  f.worker.configure({ autoReply: true }); await f.worker.run('reply');
+  assert.equal(calls, 0); assert.equal(f.worker.status().replyQueue.length, 1);
+  assert.match(f.worker.status().replyQueue[0].error, /已关闭/);
+  f.worker.configure({ replyOwnPosts: true }); await f.worker.run('reply');
+  assert.equal(f.worker.status().replyQueue.length, 1);
+  await f.worker.run('reply'); assert.equal(f.sent.length, 1); assert.equal(f.worker.status().replyQueue.length, 0);
+});
+
+test('own-post author verification excludes self and other users conversations', async t => {
+  for (const settings of [{ targetUser: 7 }, { author: 8 }, { nested: true, replyUser: 10 }]) {
+    const f = ownPostFixture(t, settings); f.worker.configure({ autoReply: true, replyOwnPosts: true }); await f.worker.run('reply');
+    assert.equal(f.sent.length, 0); assert.equal(f.worker.status().replyQueue.length, 0);
+  }
+  const f = ownPostFixture(t, { author: null }); f.worker.configure({ autoReply: true, replyOwnPosts: true }); await f.worker.run('reply');
+  assert.equal(f.sent.length, 0); assert.match(f.worker.status().replyQueue[0].error, /帖子作者/);
+});
+
+test('own-post persona uses original post snapshot or current posting persona, including direct follow-up', async t => {
+  for (const snapshot of [false, true]) for (const nested of [false, true]) {
+    let used;
+    const f = ownPostFixture(t, { nested, generate: async (_, config) => { used = config.replyPersona; return { action: 'send', text: '欢迎继续交流。' }; } });
+    f.worker.configure({ autoReply: true, replyOwnPosts: true, ownPostReplyPersona: 'posting', postingPersona: 'CURRENT_POST', replyPersona: 'REPLY_ONLY' });
+    if (snapshot) { f.worker.data.accounts['7'].posting.jobs.push({ postId: '1', status: 'verified', persona: 'ORIGINAL_POST', slot: f.worker.now() }); f.worker.save(); }
+    await f.worker.run('reply'); assert.equal(used, snapshot ? 'ORIGINAL_POST' : 'CURRENT_POST');
+    assert.equal(f.worker.status().interactions[0].personaSource, 'posting');
+  }
+  const f = replyFixture(t, { generate: async (_, c) => { assert.equal(c.replyPersona, 'REPLY_ONLY'); return { action: 'skip' }; } });
+  f.worker.configure({ autoReply: true, replyOwnPosts: true, ownPostReplyPersona: 'posting', replyPersona: 'REPLY_ONLY' }); await f.worker.run('reply');
+});
+
+test('own-post replies honor per-round and daily limits and persist remaining work', async t => {
+  const f = ownPostFixture(t), api = f.worker.api;
+  f.worker.api = async (...args) => {
+    if (args[1].endsWith('/message')) return { result: { messages: [91, 92].map(id => ({ comment_a_id: id, root_comment_id: id, linkid: 1, is_unread: 1 })) } };
+    if (args[1].endsWith('/tree')) return { result: { link: { user: { userid: 7 }, title: '帖子' }, comments: [91, 92].map(id => ({ commentid: id, user: { userid: 8 }, text: '问作者' })) } };
+    return api(...args);
+  };
+  f.worker.configure({ autoReply: true, replyOwnPosts: true, repliesPerRound: 1, dailyReplies: 1 }); await f.worker.run('reply'); await f.worker.run('reply');
+  assert.equal(f.sent.length, 1); assert.equal(f.worker.status().replyQueue.length, 1);
+  f.advance(86400000); await f.worker.run('reply'); assert.equal(f.sent.length, 2);
+});
+
+test('own-post root comment lookup resumes tree pagination across rounds', async t => {
+  const f = ownPostFixture(t), api = f.worker.api, offsets = [];
+  f.worker.api = async (...args) => {
+    if (args[1].endsWith('/tree')) {
+      const offset = +args[2].offset; offsets.push(offset);
+      return { result: { link: { user: { userid: 7 }, title: '帖子' }, comments: offset === 600 ? [{ commentid: 91, user: { userid: 8 }, text: '问作者' }] : Array.from({ length: 100 }, (_, i) => ({ commentid: offset + i + 1000, user: { userid: 9 }, text: '其他留言' })) } };
+    }
+    return api(...args);
+  };
+  f.worker.configure({ autoReply: true, replyOwnPosts: true }); await f.worker.run('reply');
+  assert.equal(f.sent.length, 0); assert.equal(f.worker.data.accounts['7'].replyQueue['91'].treeOffset, 600);
+  await f.worker.run('reply'); assert.equal(f.sent.length, 1); assert.deepEqual(offsets, [0, 100, 200, 300, 400, 500, 0, 600]);
+});
+
+
+test('stopping during own-post generation blocks send and retains queued comment', async t => {
+  let release;
+  const f = ownPostFixture(t, { generate: () => new Promise(resolve => { release = resolve; }) });
+  f.worker.configure({ autoReply: true, replyOwnPosts: true });
+  const task = f.worker.run('reply');
+  while (!release) await new Promise(resolve => setImmediate(resolve));
+  f.worker.configure({ autoReply: false });
+  release({ action: 'send', text: '停止后不应发送' }); await task;
+  assert.equal(f.sent.length, 0); assert.equal(f.worker.status().replyQueue.length, 1);
+});
+
+test('own-post rejected sends retry, unknown outcomes never auto resend', async t => {
+  for (const definitive of [true, false]) {
+    const f = ownPostFixture(t), read = f.worker.api; let attempts = 0;
+    f.worker.api = async (...args) => {
+      if (args[3] === 'POST' && ++attempts === 1) throw Object.assign(new Error('temporary refusal'), { definitive });
+      return read(...args);
+    };
+    f.worker.configure({ autoReply: true, replyOwnPosts: true }); await f.worker.run('reply');
+    assert.equal(f.worker.status().replyQueue.length, 1);
+    await f.worker.run('reply');
+    assert.equal(attempts, definitive ? 2 : 1);
+    assert.equal(f.worker.status().replyQueue.length, definitive ? 0 : 1);
+  }
+});
