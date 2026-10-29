@@ -453,3 +453,14 @@ test("posting rejection preserves sanitized platform diagnostics across restart"
   assert.match(job.platformMessage, /缺失参数/); assert.ok(!JSON.stringify(job).includes("fixture-cookie")); assert.ok(!JSON.stringify(job).includes("private-key"));
   await f.create().tick(); assert.equal(f.sent.length, 1);
 });
+
+
+test("legacy conflicting manual targets load safely but cannot submit; AI ignores old manual targets", async t => {
+  for (const mode of ["manual", "ai"]) {
+    const f = fixture(t, { generate: async input => input.kind === "post-select" ? { action: "send", communityIds: ["42"], hashtagNames: [] } : { action: "send", title: "游戏设计", text: "关卡设计可以更有趣。" } });
+    f.enable({ postingTopicId: "", postingSelectionMode: mode, postingCommunities: [{ id: "7214", name: "盒友杂谈" }, { id: "42", name: "游戏讨论" }] });
+    const next = f.create(); assert.equal(next.fault, ""); f.advance(60000); await next.tick();
+    assert.equal(f.sent.length, mode === "ai" ? 1 : 0);
+    if (mode === "manual") assert.match(next.status().posting.jobs[0].error, /只能单独选择/);
+  }
+});
